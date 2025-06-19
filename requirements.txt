@@ -1,0 +1,9 @@
+torch
+ray[rllib]
+pandas
+numpy
+scikit-learn
+optuna
+pyyaml
+# Add Rithmic connector library here
+# Add signature library (e.g., esig) here

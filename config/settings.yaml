@@ -1,0 +1,14 @@
+#
+# Main System Configuration for AlgoSpace
+#
+environment: "backtest"  # "live" or "backtest"
+
+data_handler:
+  backtest_file: "data/historical/ES_ticks.csv"
+
+lookback_windows:
+  N_30m: 100
+  N_5m: 100
+  N_regime: 100
+
+# Add other configurations here...
