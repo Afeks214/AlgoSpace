@@ -1,14 +1,99 @@
-#
-# Main System Configuration for AlgoSpace
-#
-environment: "backtest"  # "live" or "backtest"
-
+system:
+  name: "AlgoSpace Trading System"
+  version: "0.1.0"
+  mode: "backtest"  # "live", "paper", or "backtest"
+  environment: ${ENVIRONMENT:development}
+  
+# Timeframes for multi-timeframe analysis
+timeframes:
+  - 5   # 5-minute bars
+  - 30  # 30-minute bars
+  
+# Trading symbols
+symbols:
+  - "ES"   # E-mini S&P 500
+  - "NQ"   # E-mini NASDAQ-100
+  
+# Data configuration
 data_handler:
-  backtest_file: "data/historical/ES_ticks.csv"
-
+  type: "backtest"  # "rithmic", "ib", "backtest"
+  backtest_file: "data/historical/ES - 5 min.csv"
+  replay_speed: 1.0  # 1.0 = real-time, 0 = as fast as possible
+  config:
+    lookback_days: 60
+    cache_enabled: true
+    cache_path: "./data/cache/"
+    
+# Lookback windows for agents
 lookback_windows:
   N_30m: 100
   N_5m: 100
   N_regime: 100
-
-# Add other configurations here...
+    
+# Indicators configuration
+indicators:
+  mlmi:
+    enabled: true
+    periods: [14, 21, 50]
+    sensitivity: 0.7
+  nwrqk:
+    enabled: true
+    threshold: 0.8
+  fvg:
+    enabled: true
+    min_gap_size: 5
+  lvn:
+    enabled: true
+    volume_profile_days: 20
+    
+# MARL Agents configuration
+agents:
+  agent_30m:
+    enabled: true
+    model_path: "./models/agent_30m.pth"
+    action_space: ["long", "short", "neutral"]
+  agent_5m:
+    enabled: true
+    model_path: "./models/agent_5m.pth"
+    action_space: ["enter", "exit", "hold"]
+  agent_regime:
+    enabled: true
+    model_path: "./models/agent_regime.pth"
+    regimes: ["trending", "ranging", "volatile"]
+  agent_risk:
+    enabled: true
+    model_path: "./models/agent_risk.pth"
+    
+# Risk Management
+risk_management:
+  max_position_size: ${MAX_POSITION_SIZE:100000}
+  max_daily_loss: ${MAX_DAILY_LOSS:5000}
+  max_drawdown_percent: ${MAX_DRAWDOWN_PERCENT:10}
+  stop_loss_percent: 2.0
+  position_sizing_method: "kelly"
+  
+# Execution configuration
+execution:
+  order_type: "limit"  # "market", "limit"
+  slippage_ticks: 1
+  commission_per_contract: 2.5
+  
+# Backtesting specific
+backtesting:
+  start_date: ${BACKTEST_START_DATE:"2022-01-01"}
+  end_date: ${BACKTEST_END_DATE:"2023-12-31"}
+  initial_capital: ${BACKTEST_INITIAL_CAPITAL:100000}
+  
+# Logging configuration
+logging:
+  level: ${LOG_LEVEL:INFO}
+  format: ${LOG_FORMAT:json}
+  handlers:
+    - console
+    - file
+    
+# Performance monitoring
+monitoring:
+  prometheus_port: ${PROMETHEUS_PORT:9090}
+  enable_profiling: false
+  metrics_interval: 60  # seconds
