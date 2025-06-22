@@ -16,6 +16,7 @@ import structlog
 from ..core.kernel import ComponentBase, SystemKernel
 from ..core.events import EventType, Event, TickData, BarData
 from ..utils.logger import get_logger
+from .validators import BarValidator
 
 
 class BarGenerator(ComponentBase):
@@ -61,6 +62,9 @@ class BarGenerator(ComponentBase):
         self.last_bar_timestamps: Dict[int, Optional[datetime]] = {
             timeframe: None for timeframe in self.timeframes
         }
+        
+        # Initialize bar validator
+        self.bar_validator = BarValidator()
         
         self.logger.info("BarGenerator initialized",
                         timeframes=self.timeframes,
@@ -344,6 +348,18 @@ class BarGenerator(ComponentBase):
                 timeframe=timeframe
             )
             
+            # Validate bar before emitting
+            is_valid, validation_errors = self.bar_validator.validate_bar(bar_data)
+            
+            if not is_valid:
+                self.logger.error("Invalid bar data detected",
+                                timeframe=timeframe,
+                                bar=bar_data,
+                                errors=validation_errors,
+                                is_gap_fill=is_gap_fill)
+                # Skip emitting invalid bars
+                return
+            
             # Determine event type based on timeframe
             if timeframe == 5:
                 event_type = EventType.NEW_5MIN_BAR
@@ -352,7 +368,7 @@ class BarGenerator(ComponentBase):
             else:
                 event_type = EventType.NEW_BAR  # Generic fallback
             
-            # Publish event
+            # Publish valid bar
             self.publish_event(event_type, bar_data)
             
             # Update statistics

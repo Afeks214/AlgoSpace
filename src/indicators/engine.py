@@ -19,13 +19,14 @@ from ..core.kernel import ComponentBase, SystemKernel
 from ..core.events import EventType, Event, BarData
 from ..utils.logger import get_logger
 from .base import BaseIndicator, IndicatorRegistry
+from ..data.validators import BarValidator
 
 # Import existing indicators
 from .mlmi import MLMICalculator
 from .nwrqk import NWRQKCalculator
 from .fvg import FVGDetector
 from .lvn import LVNAnalyzer
-from .mmd import MMDEngine
+from .mmd import MMDFeatureExtractor
 
 
 class IndicatorEngine(ComponentBase):
@@ -85,6 +86,9 @@ class IndicatorEngine(ComponentBase):
         self.calculations_30min = 0
         self.events_emitted = 0
         
+        # Initialize bar validator
+        self.bar_validator = BarValidator()
+        
         # Initialize indicator instances with default parameters
         self._initialize_indicators()
         
@@ -129,7 +133,7 @@ class IndicatorEngine(ComponentBase):
             self.nwrqk = NWRQKCalculator(default_configs['nwrqk'], self.event_bus)
             self.fvg = FVGDetector(default_configs['fvg'], self.event_bus)
             self.lvn = LVNAnalyzer(default_configs['lvn'], self.event_bus)
-            self.mmd = MMDEngine(default_configs['mmd'], self.event_bus)
+            self.mmd = MMDFeatureExtractor(default_configs['mmd'], self.event_bus)
             
             # Initialize Feature Store with default values
             self._initialize_feature_store()
@@ -294,27 +298,20 @@ class IndicatorEngine(ComponentBase):
             True if valid, False otherwise
         """
         try:
-            # Check basic fields
-            if not bar_data.symbol or not bar_data.timestamp:
-                self.logger.warning(f"Invalid {timeframe} bar - missing symbol or timestamp")
-                return False
-            
-            # Check symbol match
+            # Check symbol match first
             if bar_data.symbol != self.symbol:
                 self.logger.debug(f"Bar for different symbol ignored",
                                 expected=self.symbol,
                                 received=bar_data.symbol)
                 return False
             
-            # Check OHLCV validity
-            if any(price <= 0 for price in [bar_data.open, bar_data.high, bar_data.low, bar_data.close]):
-                self.logger.warning(f"Invalid {timeframe} bar - negative or zero prices")
-                return False
+            # Use BarValidator for comprehensive validation
+            is_valid, validation_errors = self.bar_validator.validate_bar(bar_data)
             
-            # Check price consistency (H >= all, L <= all)
-            if (bar_data.high < max(bar_data.open, bar_data.close) or
-                bar_data.low > min(bar_data.open, bar_data.close)):
-                self.logger.warning(f"Invalid {timeframe} bar - inconsistent OHLC")
+            if not is_valid:
+                self.logger.warning(f"Invalid {timeframe} bar detected",
+                                  bar_data=bar_data,
+                                  errors=validation_errors)
                 return False
             
             return True
@@ -427,9 +424,9 @@ class IndicatorEngine(ComponentBase):
             else:
                 features.update({'nwrqk_value': 0.0, 'nwrqk_slope': 0.0, 'nwrqk_signal': 0})
             
-            # Calculate LVN (on HA data with volume profile)
+            # Calculate LVN (on standard bar data for volume profile)
             if len(self.volume_profile_buffer) >= 20:  # Need full volume profile window
-                lvn_results = self._calculate_lvn(ha_bar)
+                lvn_results = self._calculate_lvn(bar_data)
                 features.update(lvn_results)
             else:
                 features.update({
@@ -438,9 +435,9 @@ class IndicatorEngine(ComponentBase):
                     'lvn_distance_points': 0.0
                 })
             
-            # Calculate MMD features (on HA data)
+            # Calculate MMD features (on standard bar data)
             if len(self.ha_history_30m) >= 10:  # Need minimum data for path signatures
-                mmd_results = self._calculate_mmd(ha_bar)
+                mmd_results = self._calculate_mmd(bar_data)
                 features.update(mmd_results)
             else:
                 features.update({'mmd_features': np.array([])})
@@ -571,31 +568,19 @@ class IndicatorEngine(ComponentBase):
             self.logger.error("Error calculating NW-RQK", error=str(e))
             return {'nwrqk_value': 0.0, 'nwrqk_slope': 0.0, 'nwrqk_signal': 0}
     
-    def _calculate_lvn(self, ha_bar: Dict[str, float]) -> Dict[str, Any]:
+    def _calculate_lvn(self, bar_data: BarData) -> Dict[str, Any]:
         """
-        Calculate LVN using the LVN analyzer on Heiken Ashi data
+        Calculate LVN using the LVN analyzer on standard bar data
         
         Args:
-            ha_bar: Current Heiken Ashi bar
+            bar_data: Current standard OHLCV bar
             
         Returns:
             Dictionary of LVN features
         """
         try:
-            # Create a BarData object from HA data
-            ha_bar_data = BarData(
-                symbol=self.symbol,
-                timestamp=ha_bar['timestamp'],
-                open=ha_bar['open'],
-                high=ha_bar['high'],
-                low=ha_bar['low'],
-                close=ha_bar['close'],
-                volume=int(ha_bar['volume']),
-                timeframe=30
-            )
-            
-            # Use the existing LVN analyzer
-            lvn_result = self.lvn.calculate_30m(ha_bar_data)
+            # Use the LVN analyzer with original bar data for volume profile
+            lvn_result = self.lvn.calculate_30m(bar_data)
             
             return {
                 'lvn_nearest_price': lvn_result.get('nearest_lvn_price', 0.0),
@@ -611,34 +596,22 @@ class IndicatorEngine(ComponentBase):
                 'lvn_distance_points': 0.0
             }
     
-    def _calculate_mmd(self, ha_bar: Dict[str, float]) -> Dict[str, Any]:
+    def _calculate_mmd(self, bar_data: BarData) -> Dict[str, Any]:
         """
-        Calculate MMD features using the MMD engine on Heiken Ashi data
+        Calculate MMD features using the MMD engine on standard bar data
         
         Args:
-            ha_bar: Current Heiken Ashi bar
+            bar_data: Current standard OHLCV bar
             
         Returns:
             Dictionary of MMD features
         """
         try:
-            # Create a BarData object from HA data
-            ha_bar_data = BarData(
-                symbol=self.symbol,
-                timestamp=ha_bar['timestamp'],
-                open=ha_bar['open'],
-                high=ha_bar['high'],
-                low=ha_bar['low'],
-                close=ha_bar['close'],
-                volume=int(ha_bar['volume']),
-                timeframe=30
-            )
-            
-            # Use the existing MMD engine
-            mmd_result = self.mmd.calculate_30m(ha_bar_data)
+            # Use the MMD engine with original bar data for proper analysis
+            mmd_result = self.mmd.calculate_30m(bar_data)
             
             return {
-                'mmd_features': mmd_result.get('mmd_feature_vector', np.array([]))
+                'mmd_features': mmd_result.get('mmd_features', np.array([]))
             }
             
         except Exception as e:

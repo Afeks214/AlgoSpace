@@ -42,31 +42,29 @@ class BaseIndicator(ABC):
         
         self.logger.info("Indicator initialized", config=config)
     
-    @abstractmethod
     def calculate_5m(self, bar: BarData) -> Dict[str, Any]:
         """
-        Calculate indicator values for 5-minute bar
+        Calculate indicator values for 5-minute bar - override if supported
         
         Args:
             bar: New 5-minute bar data
             
         Returns:
-            Dictionary of calculated features
+            Dictionary of calculated features (empty by default)
         """
-        pass
+        return {}
     
-    @abstractmethod
     def calculate_30m(self, bar: BarData) -> Dict[str, Any]:
         """
-        Calculate indicator values for 30-minute bar
+        Calculate indicator values for 30-minute bar - override if supported
         
         Args:
             bar: New 30-minute bar data
             
         Returns:
-            Dictionary of calculated features
+            Dictionary of calculated features (empty by default)
         """
-        pass
+        return {}
     
     @abstractmethod
     def get_current_values(self) -> Dict[str, Any]:

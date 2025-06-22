@@ -124,6 +124,7 @@ class FVGDetector(BaseIndicator):
             'fvg_mitigation_signal': False
         }
     
+    
     def get_current_values(self) -> Dict[str, Any]:
         return {'fvg_bullish_active': False, 'fvg_bearish_active': False}
     

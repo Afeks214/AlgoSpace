@@ -9,11 +9,62 @@ Extracted from: LVN_Implementation.ipynb (Phase 1 core functions only)
 
 import pandas as pd
 import numpy as np
-from market_profile import MarketProfile
 from numba import jit
 import warnings
+from typing import Dict, Any, List, Optional
+from collections import deque
+from ..core.events import BarData
 
-warnings.filterwarnings("ignore", category=UserWarning, module='market_profile')
+warnings.filterwarnings("ignore", category=UserWarning)
+
+
+# Mock MarketProfile class for now
+class MarketProfile:
+    """Simple mock implementation of MarketProfile for testing"""
+    def __init__(self, df, tick_size=0.25):
+        self.df = df
+        self.tick_size = tick_size
+        
+    def __getitem__(self, time_slice):
+        return self
+        
+    @property
+    def profile(self):
+        # Simple volume profile based on price levels
+        if self.df.empty:
+            return pd.Series()
+        
+        price_min = self.df['Low'].min()
+        price_max = self.df['High'].max()
+        
+        # Create price levels
+        levels = np.arange(price_min, price_max + self.tick_size, self.tick_size)
+        volume_profile = pd.Series(index=levels, dtype=float)
+        
+        # Distribute volume across price levels
+        for _, row in self.df.iterrows():
+            level_range = np.arange(row['Low'], row['High'] + self.tick_size, self.tick_size)
+            vol_per_level = row['Volume'] / len(level_range) if len(level_range) > 0 else 0
+            for level in level_range:
+                if level in volume_profile.index:
+                    volume_profile[level] = volume_profile.get(level, 0) + vol_per_level
+                    
+        return volume_profile
+        
+    @property
+    def poc_price(self):
+        profile = self.profile
+        if profile.empty:
+            return 0
+        return profile.idxmax()
+        
+    @property
+    def value_area(self):
+        profile = self.profile
+        if profile.empty:
+            return (0, 0)
+        poc = self.poc_price
+        return (poc + 1, poc - 1)  # Simplified value area
 
 
 @jit(nopython=True)
@@ -195,3 +246,119 @@ def calculate_lvn_characteristics(lvn_df: pd.DataFrame, price_df: pd.DataFrame) 
             continue
     
     return pd.DataFrame(enhanced_lvns)
+
+
+class LVNAnalyzer:
+    """
+    Real-time LVN analyzer for streaming bar data
+    
+    Provides the interface expected by IndicatorEngine to calculate
+    Low Volume Nodes in a streaming context.
+    """
+    
+    def __init__(self, config: Dict[str, Any], event_bus: Any):
+        """
+        Initialize LVN Analyzer
+        
+        Args:
+            config: Configuration parameters
+            event_bus: System event bus (unused but required for interface)
+        """
+        self.lookback_periods = config.get('lookback_periods', 20)
+        self.strength_threshold = config.get('strength_threshold', 0.7)
+        self.max_history_length = config.get('max_history_length', 100)
+        
+        # History buffer for streaming calculation
+        self.history_buffer: deque = deque(maxlen=self.max_history_length)
+        
+        # Cache for LVN levels
+        self.current_lvns: List[Dict[str, Any]] = []
+        self.last_calculation_time = None
+        
+    def calculate_30m(self, bar_data: BarData) -> Dict[str, Any]:
+        """
+        Calculate LVN features for the current bar
+        
+        Args:
+            bar_data: Current bar data
+            
+        Returns:
+            Dictionary with LVN features
+        """
+        try:
+            # Add current bar to history
+            self.history_buffer.append({
+                'timestamp': bar_data.timestamp,
+                'open': bar_data.open,
+                'high': bar_data.high,
+                'low': bar_data.low,
+                'close': bar_data.close,
+                'volume': bar_data.volume
+            })
+            
+            # Need minimum data for calculation
+            if len(self.history_buffer) < self.lookback_periods:
+                return {
+                    'nearest_lvn_price': 0.0,
+                    'nearest_lvn_strength': 0.0,
+                    'distance_to_nearest_lvn': 0.0
+                }
+            
+            # Convert to DataFrame for market profile calculation
+            df = pd.DataFrame(list(self.history_buffer))
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.set_index('timestamp', inplace=True)
+            
+            # Rename columns to match expected format
+            df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            
+            # Calculate market profile
+            try:
+                mp = MarketProfile(df, tick_size=0.25)
+                mp_slice = mp[df.index.min():df.index.max()]
+                
+                volume_profile = mp_slice.profile
+                if volume_profile is None or volume_profile.empty:
+                    return self._default_result()
+                
+                # Find LVNs (volume < 30% of POC volume)
+                poc_volume = volume_profile.max()
+                lvn_threshold = poc_volume * (1 - self.strength_threshold)
+                
+                lvn_levels = volume_profile[volume_profile < lvn_threshold]
+                
+                if lvn_levels.empty:
+                    return self._default_result()
+                
+                # Find nearest LVN to current price
+                current_price = bar_data.close
+                distances = abs(lvn_levels.index - current_price)
+                nearest_idx = distances.argmin()
+                nearest_lvn_price = lvn_levels.index[nearest_idx]
+                nearest_lvn_volume = lvn_levels.iloc[nearest_idx]
+                
+                # Calculate strength (0-1, where 1 is strongest LVN)
+                strength = 1 - (nearest_lvn_volume / poc_volume)
+                
+                # Distance in points
+                distance = abs(current_price - nearest_lvn_price)
+                
+                return {
+                    'nearest_lvn_price': float(nearest_lvn_price),
+                    'nearest_lvn_strength': float(strength),
+                    'distance_to_nearest_lvn': float(distance)
+                }
+                
+            except Exception:
+                return self._default_result()
+                
+        except Exception:
+            return self._default_result()
+    
+    def _default_result(self) -> Dict[str, Any]:
+        """Return default result when calculation fails"""
+        return {
+            'nearest_lvn_price': 0.0,
+            'nearest_lvn_strength': 0.0,
+            'distance_to_nearest_lvn': 0.0
+        }

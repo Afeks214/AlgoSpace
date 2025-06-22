@@ -20,6 +20,7 @@ import structlog
 from ..core.kernel import ComponentBase, SystemKernel
 from ..core.events import EventType, TickData
 from ..utils.logger import get_logger
+from .validators import TickValidator, DataQualityMonitor
 
 
 class AbstractDataHandler(ComponentBase, ABC):
@@ -42,6 +43,10 @@ class AbstractDataHandler(ComponentBase, ABC):
         self.symbol = self.config.primary_symbol
         self.is_connected = False
         self.tick_count = 0
+        
+        # Initialize validators
+        self.tick_validator = TickValidator()
+        self.data_quality_monitor = DataQualityMonitor()
         
         self.logger.info("DataHandler initialized", 
                         symbol=self.symbol,
@@ -74,12 +79,32 @@ class AbstractDataHandler(ComponentBase, ABC):
         Args:
             tick_data: Standardized tick data structure
         """
+        # Validate tick before emitting
+        is_valid, validation_errors = self.tick_validator.validate_tick(tick_data)
+        
+        if not is_valid:
+            self.logger.warning("Invalid tick data detected", 
+                              tick=tick_data,
+                              errors=validation_errors)
+            # Update quality monitor
+            self.data_quality_monitor.add_tick(tick_data, is_valid=False)
+            # Skip emitting invalid ticks
+            return
+        
+        # Update quality monitor with valid tick
+        self.data_quality_monitor.add_tick(tick_data, is_valid=True)
+        
+        # Emit valid tick
         self.publish_event(EventType.NEW_TICK, tick_data)
         self.tick_count += 1
         
         # Log every 1000 ticks as per PRD
         if self.tick_count % 1000 == 0:
-            self.logger.info(f"{self.tick_count} ticks processed")
+            quality_report = self.data_quality_monitor.get_report()
+            self.logger.info(f"{self.tick_count} ticks processed",
+                           quality_score=quality_report.get('overall_quality_score', 0),
+                           total_ticks=quality_report.get('total_ticks', 0),
+                           invalid_ticks=quality_report.get('invalid_ticks', 0))
     
     async def start(self) -> None:
         """Start the data handler component"""
@@ -100,8 +125,14 @@ class AbstractDataHandler(ComponentBase, ABC):
             await self.stop_data_stream()
             await self.disconnect()
             
+            # Log final data quality report
+            quality_report = self.data_quality_monitor.get_report()
             self.logger.info("DataHandler shutdown complete", 
-                           total_ticks=self.tick_count)
+                           total_ticks=self.tick_count,
+                           quality_score=quality_report.get('overall_quality_score', 0),
+                           invalid_ticks=quality_report.get('invalid_ticks', 0),
+                           gap_count=quality_report.get('gap_count', 0),
+                           spike_count=quality_report.get('spike_count', 0))
             
         except Exception as e:
             self.logger.error("Error during DataHandler shutdown", error=str(e))
@@ -175,7 +206,7 @@ class BacktestDataHandler(AbstractDataHandler):
             self.data_frame = pd.read_csv(
                 self.file_path,
                 parse_dates=['Timestamp'],
-                date_parser=lambda x: pd.to_datetime(x, format='%d/%m/%Y %H:%M:%S')
+                date_format='mixed'
             )
             
             # Clean column names (remove extra spaces)

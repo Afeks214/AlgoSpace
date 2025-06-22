@@ -6,7 +6,7 @@ Default parameters: h=8.0, r=8.0, x_0=25, lag=2
 
 import numpy as np
 import pandas as pd
-from numba import jit, njit, prange, float64, boolean
+from numba import jit, njit, prange, float64, int64, boolean
 from typing import Dict, Any
 from src.indicators.base import BaseIndicator
 from src.core.events import EventBus, BarData
@@ -98,6 +98,7 @@ class NWRQKCalculator(BaseIndicator):
         self.x_0 = config.get('x_0', 25)
         self.lag = config.get('lag', 2)
         self.smooth_colors = config.get('smooth_colors', False)
+    
     
     def calculate_30m(self, bar: BarData) -> Dict[str, Any]:
         self.update_30m_history(bar)

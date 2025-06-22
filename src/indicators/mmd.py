@@ -84,8 +84,6 @@ class MMDFeatureExtractor(BaseIndicator):
         self.sigma = 1.0
         self.mmd_scores = []
     
-    def calculate_5m(self, bar: BarData) -> Dict[str, Any]:
-        return {}  # MMD only uses 30m data
     
     def calculate_30m(self, bar: BarData) -> Dict[str, Any]:
         self.update_30m_history(bar)
@@ -161,6 +159,7 @@ class MMDFeatureExtractor(BaseIndicator):
         ])
         
         return {'mmd_features': np.nan_to_num(features)}
+    
     
     def get_current_values(self) -> Dict[str, Any]:
         return {'mmd_score': self.mmd_scores[-1] if self.mmd_scores else 0.0}
