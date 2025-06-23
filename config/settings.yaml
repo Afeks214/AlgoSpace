@@ -45,6 +45,58 @@ indicators:
   lvn:
     enabled: true
     volume_profile_days: 20
+  mmd:
+    enabled: true
+    signature_degree: 3
+    window_size: 20
+    
+# Matrix Assemblers configuration
+matrix_assemblers:
+  30m:
+    window_size: 48  # 24 hours of 30-minute bars
+    warmup_period: 48
+    features:
+      - mlmi_value
+      - mlmi_signal
+      - nwrqk_value
+      - nwrqk_slope
+      - lvn_distance_points
+      - lvn_nearest_strength
+      - time_hour_sin
+      - time_hour_cos
+    feature_configs:
+      mlmi_value:
+        ema_alpha: 0.02
+      nwrqk_slope:
+        ema_alpha: 0.05
+      lvn_distance_points:
+        ema_alpha: 0.01
+  5m:
+    window_size: 60  # 5 hours of 5-minute bars
+    warmup_period: 20
+    features:
+      - fvg_bullish_active
+      - fvg_bearish_active
+      - fvg_nearest_level
+      - fvg_age
+      - fvg_mitigation_signal
+      - price_momentum_5
+      - volume_ratio
+    feature_configs:
+      price_momentum_5:
+        ema_alpha: 0.1
+      volume_ratio:
+        ema_alpha: 0.05
+  regime:
+    window_size: 96  # 48 hours of 30-minute bars
+    warmup_period: 30
+    feature_configs:
+      volatility_30:
+        ema_alpha: 0.05
+      volume_profile_skew:
+        ema_alpha: 0.02
+      price_acceleration:
+        ema_alpha: 0.1
     
 # MARL Agents configuration
 agents:

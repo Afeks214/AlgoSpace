@@ -57,6 +57,7 @@ class SystemValidator:
             'src/core',
             'src/data', 
             'src/indicators',
+            'src/matrix',
             'src/execution',
             'src/utils',
             'config',
@@ -87,6 +88,11 @@ class SystemValidator:
             'FVG Indicator': 'src/indicators/fvg.py',
             'LVN Indicator': 'src/indicators/lvn.py',
             'MMD Engine': 'src/indicators/mmd.py',
+            'Matrix Base': 'src/matrix/base.py',
+            'Matrix Normalizers': 'src/matrix/normalizers.py',
+            'Matrix Assembler 30m': 'src/matrix/assembler_30m.py',
+            'Matrix Assembler 5m': 'src/matrix/assembler_5m.py',
+            'Matrix Assembler Regime': 'src/matrix/assembler_regime.py',
             'Main Entry': 'src/main.py'
         }
         
