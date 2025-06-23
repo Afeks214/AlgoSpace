@@ -1,0 +1,493 @@
+{
+  "timestamp": "20250623_133655",
+  "summary": {
+    "total_checks": 55,
+    "passed": 55,
+    "failed": 0,
+    "warnings": 4
+  },
+  "component_stats": {
+    "System Kernel": {
+      "lines": 362,
+      "classes": 2,
+      "functions": 11,
+      "imports": 9,
+      "class_names": [
+        "SystemKernel",
+        "ComponentBase"
+      ],
+      "function_names": [
+        "__init__",
+        "_setup_signal_handlers",
+        "_signal_handler",
+        "register_component",
+        "get_component",
+        "get_event_bus",
+        "get_config",
+        "system_info",
+        "__init__",
+        "subscribe_to_event",
+        "publish_event"
+      ]
+    },
+    "Event System": {
+      "lines": 130,
+      "classes": 5,
+      "functions": 5,
+      "imports": 5,
+      "class_names": [
+        "EventType",
+        "TickData",
+        "BarData",
+        "Event",
+        "EventBus"
+      ],
+      "function_names": [
+        "__init__",
+        "subscribe",
+        "unsubscribe",
+        "publish",
+        "create_event"
+      ]
+    },
+    "Configuration": {
+      "lines": 256,
+      "classes": 1,
+      "functions": 27,
+      "imports": 5,
+      "class_names": [
+        "Config"
+      ],
+      "function_names": [
+        "get_config",
+        "reload_config",
+        "__init__",
+        "_get_default_config_path",
+        "_load_config",
+        "_substitute_env_vars",
+        "_substitute_env_var_string",
+        "_convert_type",
+        "get",
+        "get_section",
+        "set",
+        "reload",
+        "system_mode",
+        "is_backtest",
+        "is_live",
+        "symbols",
+        "primary_symbol",
+        "timeframes",
+        "get_indicator_config",
+        "get_agent_config",
+        "get_data_config",
+        "get_risk_config",
+        "get_execution_config",
+        "get_logging_config",
+        "to_dict",
+        "__str__",
+        "__repr__"
+      ]
+    },
+    "Data Handler": {
+      "lines": 440,
+      "classes": 3,
+      "functions": 6,
+      "imports": 12,
+      "class_names": [
+        "AbstractDataHandler",
+        "BacktestDataHandler",
+        "LiveDataHandler"
+      ],
+      "function_names": [
+        "create_data_handler",
+        "__init__",
+        "_emit_tick",
+        "__init__",
+        "_resolve_file_path",
+        "__init__"
+      ]
+    },
+    "Bar Generator": {
+      "lines": 485,
+      "classes": 2,
+      "functions": 12,
+      "imports": 8,
+      "class_names": [
+        "BarGenerator",
+        "WorkingBar"
+      ],
+      "function_names": [
+        "__init__",
+        "_on_new_tick",
+        "_validate_tick",
+        "_process_tick_for_timeframe",
+        "_floor_timestamp",
+        "_handle_gaps",
+        "_create_gap_fill_bar",
+        "_emit_bar",
+        "__init__",
+        "update_with_tick",
+        "__str__",
+        "__repr__"
+      ]
+    },
+    "Indicator Engine": {
+      "lines": 798,
+      "classes": 1,
+      "functions": 18,
+      "imports": 16,
+      "class_names": [
+        "IndicatorEngine"
+      ],
+      "function_names": [
+        "__init__",
+        "_initialize_indicators",
+        "_initialize_feature_store",
+        "_on_5min_bar",
+        "_on_30min_bar",
+        "_validate_bar_data",
+        "_convert_to_heiken_ashi",
+        "_calculate_5min_features",
+        "_calculate_30min_features",
+        "_detect_fvg",
+        "_calculate_mlmi",
+        "_calculate_nwrqk",
+        "_calculate_lvn",
+        "_calculate_mmd",
+        "_update_fvg_tracking",
+        "_find_nearest_fvg",
+        "get_current_features",
+        "get_feature_summary"
+      ]
+    },
+    "Base Indicator": {
+      "lines": 268,
+      "classes": 2,
+      "functions": 25,
+      "imports": 7,
+      "class_names": [
+        "BaseIndicator",
+        "IndicatorRegistry"
+      ],
+      "function_names": [
+        "__init__",
+        "calculate_5m",
+        "calculate_30m",
+        "get_current_values",
+        "reset",
+        "update_5m_history",
+        "update_30m_history",
+        "has_sufficient_data_5m",
+        "has_sufficient_data_30m",
+        "get_5m_prices",
+        "get_30m_prices",
+        "convert_to_heiken_ashi",
+        "log_calculation",
+        "validate_config",
+        "safe_divide",
+        "__str__",
+        "__repr__",
+        "__init__",
+        "register",
+        "get",
+        "get_all",
+        "remove",
+        "reset_all",
+        "list_names",
+        "__len__"
+      ]
+    },
+    "MLMI Indicator": {
+      "lines": 201,
+      "classes": 2,
+      "functions": 10,
+      "imports": 8,
+      "class_names": [
+        "MLMIDataFast",
+        "MLMICalculator"
+      ],
+      "function_names": [
+        "calculate_wma",
+        "calculate_rsi_with_ma",
+        "fast_knn_predict",
+        "__init__",
+        "storePreviousTrade",
+        "__init__",
+        "calculate_5m",
+        "calculate_30m",
+        "get_current_values",
+        "reset"
+      ]
+    },
+    "NWRQK Indicator": {
+      "lines": 150,
+      "classes": 1,
+      "functions": 7,
+      "imports": 6,
+      "class_names": [
+        "NWRQKCalculator"
+      ],
+      "function_names": [
+        "kernel_regression_numba",
+        "calculate_nw_regression",
+        "detect_crosses",
+        "__init__",
+        "calculate_30m",
+        "get_current_values",
+        "reset"
+      ]
+    },
+    "FVG Indicator": {
+      "lines": 132,
+      "classes": 1,
+      "functions": 6,
+      "imports": 6,
+      "class_names": [
+        "FVGDetector"
+      ],
+      "function_names": [
+        "detect_fvg",
+        "generate_fvg_data_fast",
+        "__init__",
+        "calculate_5m",
+        "get_current_values",
+        "reset"
+      ]
+    },
+    "LVN Indicator": {
+      "lines": 364,
+      "classes": 2,
+      "functions": 11,
+      "imports": 7,
+      "class_names": [
+        "MarketProfile",
+        "LVNAnalyzer"
+      ],
+      "function_names": [
+        "find_post_lvn_range",
+        "identify_and_classify_lvns",
+        "calculate_lvn_characteristics",
+        "__init__",
+        "__getitem__",
+        "profile",
+        "poc_price",
+        "value_area",
+        "__init__",
+        "calculate_30m",
+        "_default_result"
+      ]
+    },
+    "MMD Engine": {
+      "lines": 170,
+      "classes": 1,
+      "functions": 7,
+      "imports": 7,
+      "class_names": [
+        "MMDFeatureExtractor"
+      ],
+      "function_names": [
+        "_compute_dists_sq_numba",
+        "gaussian_kernel",
+        "compute_mmd",
+        "__init__",
+        "calculate_30m",
+        "get_current_values",
+        "reset"
+      ]
+    },
+    "Matrix Base": {
+      "lines": 358,
+      "classes": 1,
+      "functions": 14,
+      "imports": 10,
+      "class_names": [
+        "BaseMatrixAssembler"
+      ],
+      "function_names": [
+        "__init__",
+        "_init_normalizers",
+        "_subscribe_to_events",
+        "_on_indicators_ready",
+        "_update_matrix",
+        "extract_features",
+        "preprocess_features",
+        "get_matrix",
+        "get_latest_features",
+        "is_ready",
+        "get_statistics",
+        "reset",
+        "validate_matrix",
+        "__repr__"
+      ]
+    },
+    "Matrix Normalizers": {
+      "lines": 320,
+      "classes": 1,
+      "functions": 14,
+      "imports": 3,
+      "class_names": [
+        "RollingNormalizer"
+      ],
+      "function_names": [
+        "z_score_normalize",
+        "min_max_scale",
+        "cyclical_encode",
+        "percentage_from_price",
+        "exponential_decay",
+        "log_transform",
+        "robust_percentile_scale",
+        "safe_divide",
+        "__init__",
+        "update",
+        "std",
+        "normalize_zscore",
+        "normalize_minmax",
+        "normalize_robust"
+      ]
+    },
+    "Matrix Assembler 30m": {
+      "lines": 283,
+      "classes": 1,
+      "functions": 6,
+      "imports": 5,
+      "class_names": [
+        "MatrixAssembler30m"
+      ],
+      "function_names": [
+        "__init__",
+        "extract_features",
+        "preprocess_features",
+        "get_feature_names",
+        "get_feature_importance",
+        "validate_features"
+      ]
+    },
+    "Matrix Assembler 5m": {
+      "lines": 332,
+      "classes": 1,
+      "functions": 8,
+      "imports": 6,
+      "class_names": [
+        "MatrixAssembler5m"
+      ],
+      "function_names": [
+        "__init__",
+        "extract_features",
+        "_calculate_price_momentum",
+        "preprocess_features",
+        "get_feature_names",
+        "get_feature_importance",
+        "get_fvg_summary",
+        "validate_features"
+      ]
+    },
+    "Matrix Assembler Regime": {
+      "lines": 445,
+      "classes": 1,
+      "functions": 10,
+      "imports": 6,
+      "class_names": [
+        "MatrixAssemblerRegime"
+      ],
+      "function_names": [
+        "__init__",
+        "extract_features",
+        "_calculate_volatility",
+        "_calculate_volume_skew",
+        "_calculate_price_acceleration",
+        "preprocess_features",
+        "get_feature_names",
+        "get_regime_summary",
+        "_interpret_regime",
+        "validate_features"
+      ]
+    },
+    "Main Entry": {
+      "lines": 352,
+      "classes": 1,
+      "functions": 10,
+      "imports": 12,
+      "class_names": [
+        "AlgoSpaceSystem"
+      ],
+      "function_names": [
+        "main",
+        "__init__",
+        "_setup_system_monitoring",
+        "_log_component_summary",
+        "_on_system_start",
+        "_on_system_shutdown",
+        "_on_system_error",
+        "_on_backtest_complete",
+        "_on_connection_lost",
+        "_on_indicators_ready"
+      ]
+    }
+  },
+  "results": {
+    "passed": [
+      "\u2713 Directory exists: src/core",
+      "\u2713 Directory exists: src/data",
+      "\u2713 Directory exists: src/indicators",
+      "\u2713 Directory exists: src/matrix",
+      "\u2713 Directory exists: src/execution",
+      "\u2713 Directory exists: src/utils",
+      "\u2713 Directory exists: config",
+      "\u2713 Directory exists: data/historical",
+      "\u2713 Directory exists: tests",
+      "\u2713 System Kernel: 362 lines, 2 classes, 11 functions",
+      "  \u2713 System Kernel has required class: SystemKernel",
+      "  \u2713 System Kernel has required class: ComponentBase",
+      "  \u2713 System Kernel has required function: register_component",
+      "\u2713 Event System: 130 lines, 5 classes, 5 functions",
+      "  \u2713 Event System has required class: EventBus",
+      "  \u2713 Event System has required class: EventType",
+      "  \u2713 Event System has required function: subscribe",
+      "  \u2713 Event System has required function: publish",
+      "\u2713 Configuration: 256 lines, 1 classes, 27 functions",
+      "\u2713 Data Handler: 440 lines, 3 classes, 6 functions",
+      "  \u2713 Data Handler has required class: AbstractDataHandler",
+      "  \u2713 Data Handler has required class: BacktestDataHandler",
+      "\u2713 Bar Generator: 485 lines, 2 classes, 12 functions",
+      "  \u2713 Bar Generator has required class: BarGenerator",
+      "  \u2713 Bar Generator has required class: WorkingBar",
+      "  \u2713 Bar Generator has required function: _floor_timestamp",
+      "  \u2713 Bar Generator has required function: _handle_gaps",
+      "\u2713 Indicator Engine: 798 lines, 1 classes, 18 functions",
+      "  \u2713 Indicator Engine has required class: IndicatorEngine",
+      "  \u2713 Indicator Engine has required function: _calculate_5min_features",
+      "  \u2713 Indicator Engine has required function: _calculate_30min_features",
+      "\u2713 Base Indicator: 268 lines, 2 classes, 25 functions",
+      "\u2713 MLMI Indicator: 201 lines, 2 classes, 10 functions",
+      "\u2713 NWRQK Indicator: 150 lines, 1 classes, 7 functions",
+      "\u2713 FVG Indicator: 132 lines, 1 classes, 6 functions",
+      "\u2713 LVN Indicator: 364 lines, 2 classes, 11 functions",
+      "\u2713 MMD Engine: 170 lines, 1 classes, 7 functions",
+      "\u2713 Matrix Base: 358 lines, 1 classes, 14 functions",
+      "\u2713 Matrix Normalizers: 320 lines, 1 classes, 14 functions",
+      "\u2713 Matrix Assembler 30m: 283 lines, 1 classes, 6 functions",
+      "\u2713 Matrix Assembler 5m: 332 lines, 1 classes, 8 functions",
+      "\u2713 Matrix Assembler Regime: 445 lines, 1 classes, 10 functions",
+      "\u2713 Main Entry: 352 lines, 1 classes, 10 functions",
+      "\u2713 Configuration file exists: config/settings.yaml",
+      "  \u2713 Config has section: system:",
+      "  \u2713 Config has section: timeframes:",
+      "  \u2713 Config has section: symbols:",
+      "  \u2713 Config has section: data_handler:",
+      "  \u2713 Config has section: indicators:",
+      "\u2713 Data file found: ES - 5 min.csv (17.5MB, 353,780 lines)",
+      "\u2713 Data file found: ES - 30 min - New.csv (3.0MB, 59,107 lines)",
+      "\u2713 Total lines of code: 5,846",
+      "\u2713 Total classes: 29",
+      "\u2713 Total functions: 207",
+      "\u2713 Good component size (avg: 325 lines)"
+    ],
+    "failed": [],
+    "warnings": [
+      "  \u26a0 System Kernel missing function: start",
+      "  \u26a0 System Kernel missing function: shutdown",
+      "  \u26a0 Data Handler missing function: connect",
+      "  \u26a0 Data Handler missing function: start_data_stream"
+    ]
+  }
+}
