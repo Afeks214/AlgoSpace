@@ -1,0 +1,283 @@
+# MARL Training Configuration
+
+# General training settings
+training:
+  algorithm: MAPPO
+  seed: 42
+  device: cuda  # cuda or cpu
+  
+  # Episode settings
+  episodes: 1000
+  steps_per_episode: 1000
+  max_episodes: 10000
+  
+  # Checkpointing
+  checkpoint_dir: checkpoints/marl
+  save_interval: 50
+  log_interval: 10
+  
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 100
+    min_improvement: 0.001
+    metric: average_reward
+
+# MAPPO specific settings
+mappo:
+  # Core hyperparameters
+  learning_rate: 3e-4
+  batch_size: 512
+  mini_batch_size: 64
+  num_epochs: 4
+  
+  # PPO parameters
+  clip_epsilon: 0.2
+  entropy_coef: 0.01
+  value_loss_coef: 0.5
+  max_grad_norm: 0.5
+  
+  # GAE parameters
+  gamma: 0.99
+  gae_lambda: 0.95
+  
+  # Network architecture
+  hidden_dims: [512, 256]
+  activation: relu
+  
+  # Optimizer settings
+  actor_optimizer:
+    type: adam
+    learning_rate: 3e-4
+    weight_decay: 1e-5
+    betas: [0.9, 0.999]
+    eps: 1e-8
+    
+  critic_optimizer:
+    type: adam
+    learning_rate: 3e-4
+    weight_decay: 1e-5
+    betas: [0.9, 0.999]
+    eps: 1e-8
+  
+  # Learning rate schedule
+  scheduler:
+    type: cosine
+    T_max: 1000
+    eta_min: 1e-6
+
+# Environment settings
+environment:
+  # Market settings
+  symbols: ['BTCUSDT']
+  
+  # Position limits
+  max_position_size: 1.0
+  max_total_position: 2.0
+  
+  # Transaction costs
+  transaction_cost: 0.0002  # 2 bps
+  slippage: 0.0001  # 1 bp
+  
+  # Episode settings
+  max_steps: 1000
+  
+  # Observation settings
+  window_sizes:
+    structure_analyzer: 48
+    short_term_tactician: 60
+    mid_freq_arbitrageur: 100
+
+# Data pipeline settings
+data_pipeline:
+  # Data source
+  data_path: data/market
+  start_date: '2022-01-01'
+  end_date: '2023-12-31'
+  
+  # Train/val/test split
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  
+  # Augmentation
+  augmentation:
+    enabled: true
+    noise_level: 0.001
+    time_shift_range: 5
+    
+  # Preprocessing
+  scaling_method: standard  # standard or robust
+
+# Reward settings
+rewards:
+  # Reward weights
+  shared_weight: 0.3
+  individual_weight: 0.7
+  
+  # Shared reward settings
+  max_total_position: 2.0
+  drawdown_penalty_threshold: 0.1
+  
+  # Structure analyzer rewards
+  structure_analyzer:
+    sharpe_target: 1.5
+    max_drawdown_limit: 0.15
+    trend_accuracy_weight: 0.2
+    
+  # Short-term tactician rewards
+  short_term_tactician:
+    execution_quality_weight: 0.3
+    timing_precision_weight: 0.3
+    quick_profit_bonus: 0.5
+    max_hold_bars: 20
+    
+  # Mid-frequency arbitrageur rewards
+  mid_freq_arbitrageur:
+    inefficiency_capture_weight: 0.4
+    efficiency_ratio_target: 0.7
+    market_neutral_bonus: 0.3
+    
+  # Reward shaping
+  shaping:
+    use_potential_shaping: true
+    use_curiosity_bonus: true
+    use_exploration_bonus: true
+    potential_scale: 0.1
+    curiosity_weight: 0.05
+    exploration_weight: 0.1
+    exploration_decay: 0.999
+    cooperation_weight: 0.1
+
+# Experience replay settings
+experience_replay:
+  buffer_size: 100000
+  prioritized_replay: true
+  alpha: 0.6
+  beta: 0.4
+  beta_increment: 0.001
+
+# Hyperparameter optimization
+hyperopt:
+  enabled: true
+  n_trials: 100
+  
+  # Search space
+  search_space:
+    learning_rate:
+      type: loguniform
+      low: 1e-5
+      high: 1e-2
+    
+    batch_size:
+      type: categorical
+      choices: [256, 512, 1024]
+    
+    clip_epsilon:
+      type: uniform
+      low: 0.1
+      high: 0.3
+    
+    entropy_coef:
+      type: loguniform
+      low: 0.001
+      high: 0.1
+    
+    gae_lambda:
+      type: uniform
+      low: 0.9
+      high: 0.99
+
+# Distributed training
+distributed:
+  enabled: false
+  backend: nccl
+  world_size: 4
+  
+  # Resource allocation
+  gpus_per_node: 1
+  cpus_per_task: 4
+  memory_per_gpu: 16  # GB
+
+# Monitoring and logging
+monitoring:
+  # MLflow settings
+  mlflow:
+    enabled: true
+    tracking_uri: http://localhost:5000
+    experiment_name: marl_trading
+    
+  # TensorBoard
+  tensorboard:
+    enabled: true
+    log_dir: runs/marl
+    
+  # Metrics to track
+  metrics:
+    - total_reward
+    - episode_length
+    - win_rate
+    - sharpe_ratio
+    - max_drawdown
+    - policy_loss
+    - value_loss
+    - entropy
+    - kl_divergence
+    - clip_fraction
+    - explained_variance
+    
+  # Logging frequency
+  log_frequency:
+    scalar: 10  # Every N episodes
+    histogram: 50
+    model: 100
+
+# Evaluation settings
+evaluation:
+  # Evaluation frequency
+  eval_interval: 50  # Episodes
+  eval_episodes: 10
+  
+  # Metrics
+  metrics:
+    - cumulative_return
+    - sharpe_ratio
+    - sortino_ratio
+    - max_drawdown
+    - win_rate
+    - profit_factor
+    - average_trade_duration
+    - trades_per_episode
+    
+  # Backtesting
+  backtest:
+    enabled: true
+    test_data_path: data/test
+    transaction_costs: true
+    slippage_model: linear
+
+# Curriculum learning
+curriculum:
+  enabled: false
+  
+  # Difficulty levels
+  levels:
+    - name: easy
+      market_volatility: low
+      trend_strength: high
+      episodes: 100
+      
+    - name: medium
+      market_volatility: medium
+      trend_strength: medium
+      episodes: 200
+      
+    - name: hard
+      market_volatility: high
+      trend_strength: low
+      episodes: 300
+      
+  # Progression criteria
+  progression:
+    min_success_rate: 0.7
+    min_episodes: 50

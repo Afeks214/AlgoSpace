@@ -50,6 +50,18 @@ indicators:
     signature_degree: 3
     window_size: 20
     
+# SynergyDetector configuration
+synergy_detector:
+  time_window: 10  # Maximum bars between signals for valid synergy
+  
+  # Signal activation thresholds
+  mlmi_threshold: 0.5      # Minimum signal strength
+  nwrqk_threshold: 0.3     # Minimum slope for signal
+  fvg_min_size: 0.001      # Minimum gap size (0.1%)
+  
+  # Cooldown after detection
+  cooldown_bars: 5         # Bars to wait before next detection
+
 # Matrix Assemblers configuration
 matrix_assemblers:
   30m:
