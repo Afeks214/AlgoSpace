@@ -1,283 +1,394 @@
 # MARL Training Configuration
+# This configuration defines all hyperparameters and settings for training the multi-agent system
 
-# General training settings
+# General Training Settings
 training:
-  algorithm: MAPPO
+  # Total number of training episodes
+  n_episodes: 10000
+  
+  # Episode length (number of steps)
+  episode_length: 1000
+  
+  # Evaluation frequency
+  eval_frequency: 100
+  
+  # Model checkpoint frequency
+  save_frequency: 500
+  
+  # Early stopping patience
+  early_stopping_patience: 1000
+  
+  # Device for training (cuda/cpu)
+  device: "cuda"
+  
+  # Random seed for reproducibility
   seed: 42
-  device: cuda  # cuda or cpu
   
-  # Episode settings
-  episodes: 1000
-  steps_per_episode: 1000
-  max_episodes: 10000
-  
-  # Checkpointing
-  checkpoint_dir: checkpoints/marl
-  save_interval: 50
-  log_interval: 10
-  
-  # Early stopping
-  early_stopping:
-    enabled: true
-    patience: 100
-    min_improvement: 0.001
-    metric: average_reward
+  # Logging directory
+  log_dir: "logs/marl_training"
 
-# MAPPO specific settings
-mappo:
-  # Core hyperparameters
-  learning_rate: 3e-4
-  batch_size: 512
-  mini_batch_size: 64
-  num_epochs: 4
+# Environment Configuration
+environment:
+  # Initial trading capital
+  initial_capital: 100000
   
-  # PPO parameters
-  clip_epsilon: 0.2
-  entropy_coef: 0.01
-  value_loss_coef: 0.5
-  max_grad_norm: 0.5
+  # Transaction cost (percentage)
+  transaction_cost: 0.001
   
-  # GAE parameters
-  gamma: 0.99
-  gae_lambda: 0.95
+  # Maximum position size
+  max_position_size: 1.0
   
-  # Network architecture
-  hidden_dims: [512, 256]
-  activation: relu
+  # Episode length
+  episode_length: 1000
   
-  # Optimizer settings
-  actor_optimizer:
-    type: adam
-    learning_rate: 3e-4
-    weight_decay: 1e-5
-    betas: [0.9, 0.999]
-    eps: 1e-8
+  # List of agents
+  agents: ["regime", "structure", "tactical", "risk"]
+  
+  # Market simulation settings
+  market_simulation:
+    # Use historical data or synthetic
+    use_historical: true
     
-  critic_optimizer:
-    type: adam
-    learning_rate: 3e-4
-    weight_decay: 1e-5
-    betas: [0.9, 0.999]
-    eps: 1e-8
+    # Synthetic data parameters
+    synthetic:
+      volatility: 0.02
+      trend_strength: 0.001
+      regime_switch_prob: 0.01
+
+# MAPPO Algorithm Configuration
+mappo:
+  # Learning rate
+  learning_rate: 3e-4
   
   # Learning rate schedule
-  scheduler:
-    type: cosine
-    T_max: 1000
-    eta_min: 1e-6
+  lr_schedule:
+    enabled: true
+    type: "cosine"  # linear, cosine, exponential
+    min_lr: 1e-5
+  
+  # Discount factor
+  gamma: 0.99
+  
+  # GAE lambda for advantage estimation
+  gae_lambda: 0.95
+  
+  # Number of PPO epochs per update
+  ppo_epochs: 10
+  
+  # PPO clip parameter
+  clip_param: 0.2
+  
+  # Value loss coefficient
+  value_loss_coef: 0.5
+  
+  # Entropy coefficient
+  entropy_coef: 0.01
+  
+  # Maximum gradient norm for clipping
+  max_grad_norm: 0.5
+  
+  # Batch size for updates
+  batch_size: 64
+  
+  # Experience buffer size
+  buffer_size: 10000
+  
+  # Use prioritized experience replay
+  prioritized_replay: false
 
-# Environment settings
-environment:
-  # Market settings
-  symbols: ['BTCUSDT']
+# Agent-Specific Configurations
+agents:
+  # Regime Agent Configuration
+  regime:
+    # Model architecture
+    model:
+      type: "transformer"
+      hidden_dim: 128
+      n_layers: 4
+      n_heads: 8
+      dropout: 0.1
+      
+    # Input configuration
+    input:
+      matrix_shape: [96, 12]  # Regime matrix dimensions
+      
+    # Output configuration
+    output:
+      n_regimes: 4  # Number of regime classes
+      
+    # Training specific
+    training:
+      weight_decay: 1e-4
+      gradient_clip: 1.0
   
-  # Position limits
-  max_position_size: 1.0
-  max_total_position: 2.0
+  # Structure Agent Configuration
+  structure:
+    # Model architecture
+    model:
+      type: "lstm_cnn"
+      cnn_channels: [8, 64, 128]
+      cnn_kernels: [3, 5, 7]
+      lstm_hidden: 256
+      lstm_layers: 2
+      dropout: 0.2
+      
+    # Input configuration
+    input:
+      matrix_shape: [48, 8]  # Structure matrix dimensions
+      
+    # Output configuration
+    output:
+      direction_range: [-1, 1]
+      size_range: [0, 1]
+      confidence_range: [0, 1]
+      
+    # Training specific
+    training:
+      weight_decay: 1e-4
+      gradient_clip: 1.0
   
-  # Transaction costs
-  transaction_cost: 0.0002  # 2 bps
-  slippage: 0.0001  # 1 bp
+  # Tactical Agent Configuration
+  tactical:
+    # Model architecture
+    model:
+      type: "attention"
+      hidden_dim: 128
+      n_heads: 8
+      n_layers: 3
+      dropout: 0.1
+      use_positional_encoding: true
+      
+    # Input configuration
+    input:
+      matrix_shape: [60, 7]  # Tactical matrix dimensions
+      
+    # Output configuration
+    output:
+      n_actions: 5  # enter_long, enter_short, exit, hold, reduce
+      
+    # Training specific
+    training:
+      weight_decay: 1e-4
+      gradient_clip: 1.0
   
-  # Episode settings
-  max_steps: 1000
-  
-  # Observation settings
-  window_sizes:
-    structure_analyzer: 48
-    short_term_tactician: 60
-    mid_freq_arbitrageur: 100
+  # Risk Agent Configuration
+  risk:
+    # Model architecture
+    model:
+      type: "dqn"
+      hidden_dims: [256, 512, 256]
+      dropout: 0.1
+      use_dueling: true
+      use_noisy_net: false
+      
+    # Input configuration
+    input:
+      matrix_features: 5100  # Flattened matrix size
+      portfolio_features: 10
+      
+    # Output configuration
+    output:
+      n_actions: 4  # allow, modify, exit, block
+      
+    # Training specific
+    training:
+      weight_decay: 1e-4
+      gradient_clip: 1.0
+      target_update_freq: 100
 
-# Data pipeline settings
-data_pipeline:
-  # Data source
-  data_path: data/market
-  start_date: '2022-01-01'
-  end_date: '2023-12-31'
+# Reward System Configuration
+rewards:
+  # Agent-specific reward weights
+  agent_weights:
+    regime:
+      accuracy: 0.4
+      stability: 0.3
+      shared: 0.3
+    structure:
+      directional: 0.4
+      confidence: 0.2
+      shared: 0.4
+    tactical:
+      timing: 0.5
+      execution: 0.2
+      shared: 0.3
+    risk:
+      compliance: 0.6
+      protection: 0.2
+      shared: 0.2
   
-  # Train/val/test split
-  train_ratio: 0.7
-  val_ratio: 0.15
-  test_ratio: 0.15
+  # Global reward parameters
+  shared_weight: 0.3
+  risk_penalty_weight: 0.2
+  cooperation_bonus: 0.1
   
-  # Augmentation
+  # Reward normalization
+  normalization:
+    enabled: true
+    scale: 1.0
+    clip: 10.0
+  
+  # Reward function specific settings
+  reward_functions:
+    sharpe:
+      buffer_size: 100
+      annualization_factor: 252
+    risk_adjusted:
+      risk_free_rate: 0.02
+    execution:
+      slippage_penalty: 10.0
+      cost_penalty_scale: 0.001
+
+# Data Pipeline Configuration
+data:
+  # Data directory
+  data_path: "data/market_data"
+  
+  # Processed data output
+  output_path: "data/processed"
+  
+  # Trading symbols
+  symbols: ["EUR_USD", "GBP_USD", "USD_JPY"]
+  
+  # Date range for training data
+  start_date: "2020-01-01"
+  end_date: "2023-12-31"
+  
+  # Train/val/test split ratios
+  val_split: 0.15
+  test_split: 0.15
+  
+  # Data augmentation
   augmentation:
     enabled: true
-    noise_level: 0.001
-    time_shift_range: 5
-    
-  # Preprocessing
-  scaling_method: standard  # standard or robust
+    noise_injection: true
+    noise_level: 0.01
+    time_warping: true
+    warp_factor: 0.1
+    smote: false
 
-# Reward settings
-rewards:
-  # Reward weights
-  shared_weight: 0.3
-  individual_weight: 0.7
+# Training Optimization Configuration
+optimization:
+  # Hyperparameter optimization
+  hyperopt:
+    enabled: true
+    n_trials: 100
+    sampler: "tpe"  # tpe, random, grid
+    
+    # Parameters to optimize
+    search_space:
+      learning_rate:
+        type: "loguniform"
+        low: 1e-5
+        high: 1e-2
+      ppo_epochs:
+        type: "int"
+        low: 5
+        high: 20
+      clip_param:
+        type: "uniform"
+        low: 0.1
+        high: 0.3
+      entropy_coef:
+        type: "loguniform"
+        low: 1e-4
+        high: 1e-1
   
-  # Shared reward settings
-  max_total_position: 2.0
-  drawdown_penalty_threshold: 0.1
-  
-  # Structure analyzer rewards
-  structure_analyzer:
-    sharpe_target: 1.5
-    max_drawdown_limit: 0.15
-    trend_accuracy_weight: 0.2
+  # Distributed training
+  distributed:
+    enabled: false
+    backend: "nccl"
+    world_size: 4
     
-  # Short-term tactician rewards
-  short_term_tactician:
-    execution_quality_weight: 0.3
-    timing_precision_weight: 0.3
-    quick_profit_bonus: 0.5
-    max_hold_bars: 20
-    
-  # Mid-frequency arbitrageur rewards
-  mid_freq_arbitrageur:
-    inefficiency_capture_weight: 0.4
-    efficiency_ratio_target: 0.7
-    market_neutral_bonus: 0.3
-    
-  # Reward shaping
-  shaping:
-    use_potential_shaping: true
-    use_curiosity_bonus: true
-    use_exploration_bonus: true
-    potential_scale: 0.1
-    curiosity_weight: 0.05
-    exploration_weight: 0.1
-    exploration_decay: 0.999
-    cooperation_weight: 0.1
+  # Mixed precision training
+  mixed_precision:
+    enabled: true
+    opt_level: "O1"  # O0, O1, O2, O3
 
-# Experience replay settings
-experience_replay:
-  buffer_size: 100000
-  prioritized_replay: true
-  alpha: 0.6
-  beta: 0.4
-  beta_increment: 0.001
-
-# Hyperparameter optimization
-hyperopt:
-  enabled: true
-  n_trials: 100
-  
-  # Search space
-  search_space:
-    learning_rate:
-      type: loguniform
-      low: 1e-5
-      high: 1e-2
-    
-    batch_size:
-      type: categorical
-      choices: [256, 512, 1024]
-    
-    clip_epsilon:
-      type: uniform
-      low: 0.1
-      high: 0.3
-    
-    entropy_coef:
-      type: loguniform
-      low: 0.001
-      high: 0.1
-    
-    gae_lambda:
-      type: uniform
-      low: 0.9
-      high: 0.99
-
-# Distributed training
-distributed:
-  enabled: false
-  backend: nccl
-  world_size: 4
-  
-  # Resource allocation
-  gpus_per_node: 1
-  cpus_per_task: 4
-  memory_per_gpu: 16  # GB
-
-# Monitoring and logging
+# Monitoring and Evaluation Configuration
 monitoring:
-  # MLflow settings
+  # MLflow tracking
   mlflow:
     enabled: true
-    tracking_uri: http://localhost:5000
-    experiment_name: marl_trading
-    
-  # TensorBoard
-  tensorboard:
-    enabled: true
-    log_dir: runs/marl
+    tracking_uri: "http://localhost:5000"
+    experiment_name: "MARL_Trading"
     
   # Metrics to track
   metrics:
-    - total_reward
-    - episode_length
-    - win_rate
-    - sharpe_ratio
-    - max_drawdown
-    - policy_loss
-    - value_loss
-    - entropy
-    - kl_divergence
-    - clip_fraction
-    - explained_variance
+    - "episode_reward"
+    - "sharpe_ratio"
+    - "max_drawdown"
+    - "win_rate"
+    - "avg_trade_duration"
+    - "total_trades"
     
-  # Logging frequency
-  log_frequency:
-    scalar: 10  # Every N episodes
-    histogram: 50
-    model: 100
-
-# Evaluation settings
-evaluation:
-  # Evaluation frequency
-  eval_interval: 50  # Episodes
-  eval_episodes: 10
-  
-  # Metrics
-  metrics:
-    - cumulative_return
-    - sharpe_ratio
-    - sortino_ratio
-    - max_drawdown
-    - win_rate
-    - profit_factor
-    - average_trade_duration
-    - trades_per_episode
-    
-  # Backtesting
-  backtest:
+  # Tensorboard logging
+  tensorboard:
     enabled: true
-    test_data_path: data/test
-    transaction_costs: true
-    slippage_model: linear
+    log_frequency: 10
+    
+  # Performance thresholds for alerts
+  alerts:
+    min_sharpe_ratio: 0.5
+    max_drawdown: 0.20
+    min_win_rate: 0.45
 
-# Curriculum learning
-curriculum:
-  enabled: false
+# Evaluation Configuration
+evaluation:
+  # Number of evaluation episodes
+  n_episodes: 100
   
-  # Difficulty levels
-  levels:
-    - name: easy
-      market_volatility: low
-      trend_strength: high
-      episodes: 100
-      
-    - name: medium
-      market_volatility: medium
-      trend_strength: medium
-      episodes: 200
-      
-    - name: hard
-      market_volatility: high
-      trend_strength: low
-      episodes: 300
-      
-  # Progression criteria
-  progression:
-    min_success_rate: 0.7
-    min_episodes: 50
+  # Evaluation metrics
+  metrics:
+    - "total_return"
+    - "sharpe_ratio"
+    - "sortino_ratio"
+    - "max_drawdown"
+    - "calmar_ratio"
+    - "win_rate"
+    - "profit_factor"
+    
+  # Backtesting settings
+  backtesting:
+    # Out-of-sample test period
+    test_start: "2024-01-01"
+    test_end: "2024-03-31"
+    
+    # Include transaction costs
+    include_costs: true
+    
+    # Slippage model
+    slippage:
+      type: "percentage"
+      value: 0.0005
+    
+    # Position limits
+    position_limits:
+      max_position: 1.0
+      max_leverage: 1.0
+
+# Production Deployment Configuration
+deployment:
+  # Model serving
+  serving:
+    framework: "torchserve"
+    batch_size: 1
+    max_batch_delay: 10  # milliseconds
+    
+  # Model versioning
+  versioning:
+    enabled: true
+    registry: "mlflow"
+    
+  # A/B testing configuration
+  ab_testing:
+    enabled: false
+    control_allocation: 0.8
+    
+  # Monitoring in production
+  production_monitoring:
+    performance_tracking: true
+    drift_detection: true
+    alert_thresholds:
+      latency_ms: 10
+      error_rate: 0.01
