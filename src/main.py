@@ -35,6 +35,9 @@ from src.data.bar_generator import BarGenerator
 # Import indicator components
 from src.indicators.engine import IndicatorEngine
 
+# Import agent components
+from src.agents.synergy import SynergyDetector
+
 
 class AlgoSpaceSystem:
     """
@@ -64,6 +67,7 @@ class AlgoSpaceSystem:
         self.data_handler = None
         self.bar_generator = None
         self.indicator_engine = None
+        self.synergy_detector = None
         
         # System state
         self.is_initialized = False
@@ -89,6 +93,7 @@ class AlgoSpaceSystem:
         
         # Monitor indicators
         self.event_bus.subscribe(EventType.INDICATORS_READY, self._on_indicators_ready)
+        self.event_bus.subscribe(EventType.SYNERGY_DETECTED, self._on_synergy_detected)
         
         self.logger.debug("System monitoring established")
     
@@ -138,8 +143,19 @@ class AlgoSpaceSystem:
                 dependencies=["BarGenerator"]
             )
             
+            # 4. Create and register SynergyDetector
+            self.logger.info("Creating SynergyDetector...")
+            self.synergy_detector = SynergyDetector(
+                name="SynergyDetector",
+                kernel=self.kernel
+            )
+            self.kernel.register_component(
+                name="SynergyDetector",
+                component=self.synergy_detector,
+                dependencies=["IndicatorEngine"]
+            )
+            
             # Future components would be registered here:
-            # - SynergyDetector (depends on IndicatorEngine)
             # - MatrixAssemblers (depends on IndicatorEngine)
             # - RegimeDetectionEngine (depends on IndicatorEngine)
             # - RiskManagementSubsystem (depends on SynergyDetector)
@@ -274,6 +290,17 @@ class AlgoSpaceSystem:
         if self._indicator_event_count % 100 == 0:
             self.logger.info(f"Indicators processed: {self._indicator_event_count} events",
                            feature_count=feature_count)
+    
+    def _on_synergy_detected(self, event: Event) -> None:
+        """Handle synergy detection event"""
+        payload = event.payload
+        self.logger.info(
+            "SYNERGY DETECTED",
+            synergy_type=payload.get('synergy_type'),
+            direction='LONG' if payload.get('direction') == 1 else 'SHORT',
+            confidence=payload.get('confidence'),
+            pattern=[s['type'] for s in payload.get('signal_sequence', [])]
+        )
 
 
 async def run_system(config_path: str = None) -> None:
