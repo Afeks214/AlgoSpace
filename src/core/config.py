@@ -1,256 +1,174 @@
-import os
+# src/core/config.py
+"""
+Handles loading and validation of the system's YAML configuration file.
+"""
 import yaml
+import os
+import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
-import structlog
 
-logger = structlog.get_logger()
-
-
-class Config:
-    """Configuration manager for the AlgoSpace system"""
-    
-    def __init__(self, config_path: Optional[str] = None):
-        """
-        Initialize configuration loader
-        
-        Args:
-            config_path: Path to configuration file. If None, uses default path.
-        """
-        self._config_path = config_path or self._get_default_config_path()
-        self._config_data: Dict[str, Any] = {}
-        self._load_config()
-    
-    def _get_default_config_path(self) -> str:
-        """Get default configuration file path"""
-        current_dir = Path(__file__).parent.parent.parent
-        return str(current_dir / "config" / "settings.yaml")
-    
-    def _load_config(self) -> None:
-        """Load configuration from YAML file"""
-        try:
-            with open(self._config_path, 'r') as file:
-                # Load YAML with environment variable substitution
-                raw_config = yaml.safe_load(file)
-                self._config_data = self._substitute_env_vars(raw_config)
-            
-            logger.info("Configuration loaded successfully", path=self._config_path)
-            
-        except FileNotFoundError:
-            logger.error("Configuration file not found", path=self._config_path)
-            raise
-        except yaml.YAMLError as e:
-            logger.error("Error parsing YAML configuration", error=str(e))
-            raise
-        except Exception as e:
-            logger.error("Unexpected error loading configuration", error=str(e))
-            raise
-    
-    def _substitute_env_vars(self, obj: Any) -> Any:
-        """Recursively substitute environment variables in configuration"""
-        if isinstance(obj, dict):
-            return {key: self._substitute_env_vars(value) for key, value in obj.items()}
-        elif isinstance(obj, list):
-            return [self._substitute_env_vars(item) for item in obj]
-        elif isinstance(obj, str):
-            return self._substitute_env_var_string(obj)
-        else:
-            return obj
-    
-    def _substitute_env_var_string(self, value: str) -> Any:
-        """Substitute environment variables in a string"""
-        if not value.startswith('${') or not value.endswith('}'):
-            return value
-        
-        # Parse ${VAR_NAME:default_value} format
-        var_spec = value[2:-1]  # Remove ${ and }
-        
-        if ':' in var_spec:
-            var_name, default_value = var_spec.split(':', 1)
-            env_value = os.getenv(var_name, default_value)
-        else:
-            var_name = var_spec
-            env_value = os.getenv(var_name)
-            if env_value is None:
-                logger.warning("Environment variable not set", var_name=var_name)
-                return value
-        
-        # Try to convert to appropriate type
-        return self._convert_type(env_value)
-    
-    def _convert_type(self, value: str) -> Any:
-        """Convert string value to appropriate type"""
-        if value.lower() in ('true', 'false'):
-            return value.lower() == 'true'
-        
-        # Try integer
-        try:
-            return int(value)
-        except ValueError:
-            pass
-        
-        # Try float
-        try:
-            return float(value)
-        except ValueError:
-            pass
-        
-        # Return as string
-        return value
-    
-    def get(self, key: str, default: Any = None) -> Any:
-        """
-        Get configuration value using dot notation
-        
-        Args:
-            key: Configuration key in dot notation (e.g., 'system.mode')
-            default: Default value if key not found
-            
-        Returns:
-            Configuration value or default
-        """
-        keys = key.split('.')
-        current = self._config_data
-        
-        try:
-            for k in keys:
-                current = current[k]
-            return current
-        except (KeyError, TypeError):
-            return default
-    
-    def get_section(self, section: str) -> Dict[str, Any]:
-        """
-        Get entire configuration section
-        
-        Args:
-            section: Section name (e.g., 'indicators')
-            
-        Returns:
-            Section dictionary or empty dict if not found
-        """
-        return self.get(section, {})
-    
-    def set(self, key: str, value: Any) -> None:
-        """
-        Set configuration value using dot notation
-        
-        Args:
-            key: Configuration key in dot notation
-            value: Value to set
-        """
-        keys = key.split('.')
-        current = self._config_data
-        
-        # Navigate to parent of target key
-        for k in keys[:-1]:
-            if k not in current:
-                current[k] = {}
-            current = current[k]
-        
-        # Set the value
-        current[keys[-1]] = value
-    
-    def reload(self) -> None:
-        """Reload configuration from file"""
-        self._load_config()
-        logger.info("Configuration reloaded")
-    
-    @property
-    def system_mode(self) -> str:
-        """Get system mode (backtest, paper, live)"""
-        return self.get('system.mode', 'backtest')
-    
-    @property
-    def is_backtest(self) -> bool:
-        """Check if system is in backtest mode"""
-        return self.system_mode == 'backtest'
-    
-    @property
-    def is_live(self) -> bool:
-        """Check if system is in live mode"""
-        return self.system_mode == 'live'
-    
-    @property
-    def symbols(self) -> list:
-        """Get list of trading symbols"""
-        return self.get('symbols', ['ES'])
-    
-    @property
-    def primary_symbol(self) -> str:
-        """Get primary trading symbol"""
-        symbols = self.symbols
-        return symbols[0] if symbols else 'ES'
-    
-    @property
-    def timeframes(self) -> list:
-        """Get list of timeframes"""
-        return self.get('timeframes', [5, 30])
-    
-    def get_indicator_config(self, indicator_name: str) -> Dict[str, Any]:
-        """Get configuration for specific indicator"""
-        return self.get(f'indicators.{indicator_name}', {})
-    
-    def get_agent_config(self, agent_name: str) -> Dict[str, Any]:
-        """Get configuration for specific agent"""
-        return self.get(f'agents.{agent_name}', {})
-    
-    def get_data_config(self) -> Dict[str, Any]:
-        """Get data handler configuration"""
-        return self.get_section('data_handler')
-    
-    def get_risk_config(self) -> Dict[str, Any]:
-        """Get risk management configuration"""
-        return self.get_section('risk_management')
-    
-    def get_execution_config(self) -> Dict[str, Any]:
-        """Get execution configuration"""
-        return self.get_section('execution')
-    
-    def get_logging_config(self) -> Dict[str, Any]:
-        """Get logging configuration"""
-        return self.get_section('logging')
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Return entire configuration as dictionary"""
-        return self._config_data.copy()
-    
-    def __str__(self) -> str:
-        """String representation of configuration"""
-        return f"Config(path={self._config_path}, mode={self.system_mode})"
-    
-    def __repr__(self) -> str:
-        """Detailed string representation"""
-        return f"Config(path='{self._config_path}', loaded_keys={list(self._config_data.keys())})"
+logger = logging.getLogger(__name__)
 
 
-# Global configuration instance
-_config_instance: Optional[Config] = None
+class ConfigurationError(Exception):
+    """Raised when configuration is invalid or missing required fields."""
+    pass
 
 
-def get_config(config_path: Optional[str] = None) -> Config:
+def load_config(path: str = 'config/settings.yaml') -> Dict[str, Any]:
     """
-    Get global configuration instance (singleton pattern)
+    Loads the YAML configuration file and injects credentials from environment variables.
+
+    Args:
+        path: The path to the settings.yaml file.
+
+    Returns:
+        The complete configuration dictionary.
+    
+    Raises:
+        FileNotFoundError: If the config file is not found.
+        ConfigurationError: If essential configuration is missing or invalid.
+    """
+    config_path = Path(path)
+    logger.info(f"Loading configuration from: {config_path.absolute()}")
+    
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found at {config_path.absolute()}")
+
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ConfigurationError(f"Failed to parse YAML configuration: {e}")
+
+    # Validate basic structure
+    required_sections = ['data', 'execution', 'risk', 'agents', 'models']
+    missing_sections = [s for s in required_sections if s not in config]
+    if missing_sections:
+        raise ConfigurationError(f"Missing required configuration sections: {missing_sections}")
+
+    # Inject sensitive credentials from environment variables
+    _inject_credentials(config)
+    
+    # Validate configuration
+    _validate_config(config)
+    
+    logger.info("Configuration loaded and validated successfully")
+    return config
+
+
+def _inject_credentials(config: Dict[str, Any]) -> None:
+    """
+    Injects sensitive credentials from environment variables.
     
     Args:
-        config_path: Path to configuration file (only used on first call)
-        
-    Returns:
-        Configuration instance
+        config: The configuration dictionary to modify.
+    
+    Raises:
+        ConfigurationError: If required credentials are missing.
     """
-    global _config_instance
+    # Rithmic credentials for live trading
+    if config.get('data', {}).get('mode') == 'live':
+        rithmic_creds = {
+            'user': os.environ.get('RITHMIC_USER'),
+            'password': os.environ.get('RITHMIC_PASSWORD'),
+            'system': os.environ.get('RITHMIC_SYSTEM'),
+            'gateway': os.environ.get('RITHMIC_GATEWAY', 'apis.rithmic.com:443')
+        }
+        
+        missing_creds = [k for k, v in rithmic_creds.items() if not v and k != 'gateway']
+        if missing_creds:
+            raise ConfigurationError(
+                f"Missing Rithmic credentials in environment variables: {missing_creds}"
+            )
+        
+        config['data']['live_settings'] = rithmic_creds
+        logger.info("Rithmic credentials injected from environment variables")
+
+    # API keys for any external services
+    api_keys = {}
+    for key in ['ALPHAVANTAGE_KEY', 'POLYGON_KEY', 'IB_GATEWAY_KEY']:
+        if key in os.environ:
+            api_keys[key.lower()] = os.environ[key]
     
-    if _config_instance is None:
-        _config_instance = Config(config_path)
-    
-    return _config_instance
+    if api_keys:
+        config.setdefault('api_keys', {}).update(api_keys)
+        logger.info(f"Injected {len(api_keys)} API keys from environment variables")
 
 
-def reload_config() -> None:
-    """Reload global configuration"""
-    global _config_instance
+def _validate_config(config: Dict[str, Any]) -> None:
+    """
+    Validates the configuration for required fields and correct types.
     
-    if _config_instance is not None:
-        _config_instance.reload()
-    else:
-        logger.warning("No configuration instance to reload")
+    Args:
+        config: The configuration dictionary to validate.
+    
+    Raises:
+        ConfigurationError: If validation fails.
+    """
+    # Validate data configuration
+    data_config = config.get('data', {})
+    if 'mode' not in data_config:
+        raise ConfigurationError("data.mode is required (live or backtest)")
+    
+    if data_config['mode'] not in ['live', 'backtest']:
+        raise ConfigurationError("data.mode must be 'live' or 'backtest'")
+    
+    # Validate contracts configuration
+    if 'contracts' not in data_config:
+        raise ConfigurationError("data.contracts section is required")
+    
+    contracts = data_config['contracts']
+    required_contract_fields = ['symbol', 'exchange', 'tick_size', 'point_value']
+    for contract_name, contract_info in contracts.items():
+        missing_fields = [f for f in required_contract_fields if f not in contract_info]
+        if missing_fields:
+            raise ConfigurationError(
+                f"Contract '{contract_name}' missing required fields: {missing_fields}"
+            )
+    
+    # Validate model paths
+    models_config = config.get('models', {})
+    required_models = ['rde_path', 'mrms_path', 'marl_base_path']
+    missing_models = [m for m in required_models if m not in models_config]
+    if missing_models:
+        raise ConfigurationError(f"Missing required model paths: {missing_models}")
+    
+    # Validate model files exist
+    for model_name, model_path in models_config.items():
+        if model_path and not Path(model_path).parent.exists():
+            logger.warning(f"Model directory does not exist for {model_name}: {Path(model_path).parent}")
+    
+    # Validate risk parameters
+    risk_config = config.get('risk', {})
+    if 'max_positions' not in risk_config:
+        config['risk']['max_positions'] = 3  # Default
+        logger.info("Using default max_positions: 3")
+    
+    if 'max_risk_per_trade' not in risk_config:
+        config['risk']['max_risk_per_trade'] = 0.02  # Default 2%
+        logger.info("Using default max_risk_per_trade: 2%")
+    
+    logger.info("Configuration validation completed successfully")
+
+
+def get_config_value(config: Dict[str, Any], path: str, default: Any = None) -> Any:
+    """
+    Safely retrieves a nested configuration value using dot notation.
+    
+    Args:
+        config: The configuration dictionary.
+        path: Dot-separated path to the value (e.g., 'data.contracts.MES.symbol').
+        default: Default value if path doesn't exist.
+    
+    Returns:
+        The configuration value or default.
+    """
+    try:
+        value = config
+        for key in path.split('.'):
+            value = value[key]
+        return value
+    except (KeyError, TypeError):
+        return default

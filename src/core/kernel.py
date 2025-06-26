@@ -1,362 +1,383 @@
+# src/core/kernel.py
 """
-System Kernel - Main Orchestration Engine
-
-This module implements the central orchestration engine that manages all system components,
-coordinates their lifecycle, and handles the event-driven architecture.
-
-Based on Master PRD - System Kernel & Orchestration v1.0
+The System Kernel & Orchestration class. This is the master conductor.
 """
+import logging
+from typing import Dict, Any, Optional
+from pathlib import Path
 
-import asyncio
-import signal
-import sys
-from typing import Dict, List, Optional, Any
-from datetime import datetime
-import structlog
+from .config import load_config
+from .event_bus import EventBus
 
-from .config import get_config, Config
-from .events import EventBus, EventType, Event
-from ..utils.logger import get_logger
+# Component imports - these will be replaced with actual imports as they are developed
+try:
+    from ..components.data_handler import LiveDataHandler, BacktestDataHandler
+except ImportError:
+    LiveDataHandler = BacktestDataHandler = None
+
+try:
+    from ..components.bar_generator import BarGenerator
+except ImportError:
+    BarGenerator = None
+
+try:
+    from ..components.indicator_engine import IndicatorEngine
+except ImportError:
+    IndicatorEngine = None
+
+try:
+    from ..components.matrix_assembler import MatrixAssembler30m, MatrixAssembler5m, MatrixAssemblerRegime
+except ImportError:
+    MatrixAssembler30m = MatrixAssembler5m = MatrixAssemblerRegime = None
+
+try:
+    from ..agents.regime_engine import RegimeDetectionEngine
+except ImportError:
+    RegimeDetectionEngine = None
+
+try:
+    from ..agents.risk_manager import RiskManagementSubsystem
+except ImportError:
+    RiskManagementSubsystem = None
+
+try:
+    from ..agents.marl_core import MainMARLCore, SynergyDetector
+except ImportError:
+    MainMARLCore = SynergyDetector = None
+
+try:
+    from ..components.execution_handler import LiveExecutionHandler, BacktestExecutionHandler
+except ImportError:
+    LiveExecutionHandler = BacktestExecutionHandler = None
+
+logger = logging.getLogger(__name__)
 
 
-class SystemKernel:
+class AlgoSpaceKernel:
     """
-    Main system orchestration engine
+    The main system kernel that orchestrates all components of the AlgoSpace trading system.
     
-    Responsibilities:
-    - Component lifecycle management
-    - Event bus coordination
-    - Configuration management
-    - Graceful startup and shutdown
-    - Error handling and recovery
+    This class is responsible for:
+    - Loading configuration
+    - Instantiating all system components
+    - Wiring components together via the event bus
+    - Managing the system lifecycle
     """
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str = 'config/settings.yaml'):
         """
-        Initialize the System Kernel
+        Initializes the Kernel, but does not start it.
         
         Args:
-            config_path: Path to configuration file (optional)
+            config_path: Path to the system configuration file.
         """
-        self.logger = get_logger(self.__class__.__name__)
-        self.config = get_config(config_path)
+        self.config_path = config_path
+        self.config: Dict[str, Any] = {}
         self.event_bus = EventBus()
-        
-        # Component registry
         self.components: Dict[str, Any] = {}
-        self.component_order: List[str] = []
+        self.running = False
         
-        # System state
-        self.is_running = False
-        self.is_shutting_down = False
-        self.startup_timestamp: Optional[datetime] = None
+        # Configure logging
+        self._setup_logging()
         
-        # Register signal handlers for graceful shutdown
-        self._setup_signal_handlers()
-        
-        self.logger.info("System Kernel initialized", 
-                        mode=self.config.system_mode,
-                        symbols=self.config.symbols)
-    
-    def _setup_signal_handlers(self) -> None:
-        """Setup signal handlers for graceful shutdown"""
-        try:
-            signal.signal(signal.SIGINT, self._signal_handler)
-            signal.signal(signal.SIGTERM, self._signal_handler)
-            self.logger.debug("Signal handlers registered")
-        except Exception as e:
-            self.logger.warning("Failed to register signal handlers", error=str(e))
-    
-    def _signal_handler(self, signum: int, frame) -> None:
-        """Handle shutdown signals"""
-        self.logger.info("Shutdown signal received", signal=signum)
-        if not self.is_shutting_down:
-            asyncio.create_task(self.shutdown())
-    
-    def register_component(self, name: str, component: Any, 
-                          dependencies: Optional[List[str]] = None) -> None:
-        """
-        Register a system component
-        
-        Args:
-            name: Component name
-            component: Component instance
-            dependencies: List of component names this depends on
-        """
-        if name in self.components:
-            raise ValueError(f"Component '{name}' already registered")
-        
-        self.components[name] = component
-        
-        # Simple dependency ordering (topological sort would be better for complex deps)
-        if dependencies:
-            # Insert after dependencies
-            insert_pos = 0
-            for dep in dependencies:
-                if dep in self.component_order:
-                    insert_pos = max(insert_pos, self.component_order.index(dep) + 1)
-            self.component_order.insert(insert_pos, name)
-        else:
-            self.component_order.append(name)
-        
-        self.logger.debug("Component registered", 
-                         name=name, 
-                         dependencies=dependencies or [],
-                         position=self.component_order.index(name))
-    
-    async def start(self) -> None:
-        """
-        Start the system and all components
-        
-        Startup sequence:
-        1. System initialization
-        2. Component startup (in dependency order)
-        3. Event bus activation
-        4. System ready notification
-        """
-        if self.is_running:
-            self.logger.warning("System already running")
-            return
-        
-        try:
-            self.logger.info("--- AlgoSpace System Kernel Starting ---")
-            self.startup_timestamp = datetime.now()
-            
-            # Emit system start event
-            start_event = self.event_bus.create_event(
-                EventType.SYSTEM_START,
-                {
-                    'timestamp': self.startup_timestamp,
-                    'mode': self.config.system_mode,
-                    'symbols': self.config.symbols,
-                    'components': list(self.components.keys())
-                },
-                'SystemKernel'
-            )
-            self.event_bus.publish(start_event)
-            
-            # Start components in dependency order
-            for component_name in self.component_order:
-                await self._start_component(component_name)
-            
-            self.is_running = True
-            
-            self.logger.info("--- System Kernel Started Successfully ---",
-                           components=len(self.components),
-                           mode=self.config.system_mode)
-            
-            # Keep running until shutdown
-            await self._run_main_loop()
-            
-        except Exception as e:
-            self.logger.error("System startup failed", error=str(e))
-            await self._emergency_shutdown()
-            raise
-    
-    async def _start_component(self, name: str) -> None:
-        """Start a single component"""
-        component = self.components[name]
-        
-        try:
-            self.logger.info(f"Starting component: {name}")
-            
-            # Check if component has async start method
-            if hasattr(component, 'start') and callable(component.start):
-                if asyncio.iscoroutinefunction(component.start):
-                    await component.start()
-                else:
-                    component.start()
-            
-            # Emit component started event
-            started_event = self.event_bus.create_event(
-                EventType.COMPONENT_STARTED,
-                {
-                    'component_name': name,
-                    'timestamp': datetime.now()
-                },
-                'SystemKernel'
-            )
-            self.event_bus.publish(started_event)
-            
-            self.logger.info(f"Component started successfully: {name}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to start component: {name}", error=str(e))
-            raise
-    
-    async def _run_main_loop(self) -> None:
-        """Main system loop - keeps the system running"""
-        try:
-            while self.is_running and not self.is_shutting_down:
-                # System heartbeat and monitoring
-                await asyncio.sleep(1.0)
-                
-                # Basic health checks could go here
-                # For now, just maintain the event loop
-                
-        except asyncio.CancelledError:
-            self.logger.info("Main loop cancelled - shutting down")
-        except Exception as e:
-            self.logger.error("Error in main loop", error=str(e))
-            await self._emergency_shutdown()
-    
-    async def shutdown(self) -> None:
-        """
-        Graceful system shutdown
-        
-        Shutdown sequence:
-        1. Set shutdown flag
-        2. Stop components (reverse order)
-        3. Cleanup resources
-        4. Final notification
-        """
-        if self.is_shutting_down:
-            self.logger.warning("Shutdown already in progress")
-            return
-        
-        self.is_shutting_down = True
-        self.logger.info("--- System Kernel Shutdown Initiated ---")
-        
-        try:
-            # Emit shutdown event
-            shutdown_event = self.event_bus.create_event(
-                EventType.SYSTEM_SHUTDOWN,
-                {
-                    'timestamp': datetime.now(),
-                    'uptime_seconds': (datetime.now() - self.startup_timestamp).total_seconds() if self.startup_timestamp else 0
-                },
-                'SystemKernel'
-            )
-            self.event_bus.publish(shutdown_event)
-            
-            # Stop components in reverse order
-            for component_name in reversed(self.component_order):
-                await self._stop_component(component_name)
-            
-            self.is_running = False
-            
-            self.logger.info("--- System Kernel Shutdown Complete ---")
-            
-        except Exception as e:
-            self.logger.error("Error during shutdown", error=str(e))
-        finally:
-            # Ensure we exit
-            sys.exit(0)
-    
-    async def _stop_component(self, name: str) -> None:
-        """Stop a single component"""
-        component = self.components[name]
-        
-        try:
-            self.logger.info(f"Stopping component: {name}")
-            
-            # Check if component has stop method
-            if hasattr(component, 'stop') and callable(component.stop):
-                if asyncio.iscoroutinefunction(component.stop):
-                    await component.stop()
-                else:
-                    component.stop()
-            
-            # Emit component stopped event
-            stopped_event = self.event_bus.create_event(
-                EventType.COMPONENT_STOPPED,
-                {
-                    'component_name': name,
-                    'timestamp': datetime.now()
-                },
-                'SystemKernel'
-            )
-            self.event_bus.publish(stopped_event)
-            
-            self.logger.info(f"Component stopped successfully: {name}")
-            
-        except Exception as e:
-            self.logger.error(f"Error stopping component: {name}", error=str(e))
-    
-    async def _emergency_shutdown(self) -> None:
-        """Emergency shutdown when normal shutdown fails"""
-        self.logger.critical("Emergency shutdown initiated")
-        
-        # Emit error event
-        error_event = self.event_bus.create_event(
-            EventType.SYSTEM_ERROR,
-            {
-                'error_type': 'emergency_shutdown',
-                'timestamp': datetime.now()
-            },
-            'SystemKernel'
+        logger.info(f"AlgoSpace Kernel initialized with config path: {config_path}")
+
+    def _setup_logging(self) -> None:
+        """Configure logging for the system."""
+        log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        logging.basicConfig(
+            level=logging.INFO,
+            format=log_format,
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler('logs/algospace.log', mode='a')
+            ]
         )
-        self.event_bus.publish(error_event)
-        
-        # Force exit
-        sys.exit(1)
-    
-    def get_component(self, name: str) -> Optional[Any]:
-        """Get a registered component by name"""
-        return self.components.get(name)
-    
-    def get_event_bus(self) -> EventBus:
-        """Get the system event bus"""
-        return self.event_bus
-    
-    def get_config(self) -> Config:
-        """Get the system configuration"""
-        return self.config
-    
-    @property
-    def system_info(self) -> Dict[str, Any]:
-        """Get system information"""
-        return {
-            'mode': self.config.system_mode,
-            'symbols': self.config.symbols,
-            'timeframes': self.config.timeframes,
-            'is_running': self.is_running,
-            'is_shutting_down': self.is_shutting_down,
-            'component_count': len(self.components),
-            'components': list(self.components.keys()),
-            'startup_timestamp': self.startup_timestamp.isoformat() if self.startup_timestamp else None
-        }
 
-
-class ComponentBase:
-    """
-    Base class for all system components
-    
-    Provides standard lifecycle methods and event bus access
-    """
-    
-    def __init__(self, name: str, kernel: SystemKernel):
+    def initialize(self) -> None:
         """
-        Initialize component
+        Initializes and wires all system components in the correct dependency order.
+        
+        Raises:
+            Exception: If initialization fails at any stage.
+        """
+        try:
+            logger.info("=== AlgoSpace System Initialization Starting ===")
+            
+            # Load configuration
+            self.config = load_config(self.config_path)
+            logger.info("Configuration loaded successfully")
+            
+            # Phase 1: Component Instantiation
+            logger.info("\n--- Phase 1: Component Instantiation ---")
+            self._instantiate_components()
+            
+            # Phase 2: Event Wiring
+            logger.info("\n--- Phase 2: Event Wiring ---")
+            self._wire_events()
+            
+            # Phase 3: Component Initialization
+            logger.info("\n--- Phase 3: Component Initialization ---")
+            self._initialize_components()
+            
+            logger.info("\n=== AlgoSpace Initialization Complete. System is READY. ===")
+            
+        except Exception as e:
+            logger.error(f"Kernel initialization failed: {e}", exc_info=True)
+            self.shutdown()
+            raise
+
+    def _instantiate_components(self) -> None:
+        """Instantiates all system components based on configuration."""
+        # Data Pipeline
+        mode = self.config['data']['mode']
+        logger.info(f"Instantiating components for mode: {mode}")
+        
+        if mode == 'live':
+            if LiveDataHandler:
+                self.components['data_handler'] = LiveDataHandler(self.config, self.event_bus)
+                logger.info("LiveDataHandler instantiated")
+            else:
+                logger.warning("LiveDataHandler not available")
+        else:
+            if BacktestDataHandler:
+                self.components['data_handler'] = BacktestDataHandler(self.config, self.event_bus)
+                logger.info("BacktestDataHandler instantiated")
+            else:
+                logger.warning("BacktestDataHandler not available")
+        
+        # Bar Generation
+        if BarGenerator:
+            self.components['bar_generator'] = BarGenerator(self.config, self.event_bus)
+            logger.info("BarGenerator instantiated")
+        
+        # Indicator Engine
+        if IndicatorEngine:
+            self.components['indicator_engine'] = IndicatorEngine(self.config, self.event_bus)
+            logger.info("IndicatorEngine instantiated")
+        
+        # Feature Preparation - Matrix Assemblers
+        if MatrixAssembler30m:
+            self.components['matrix_30m'] = MatrixAssembler30m(self.config)
+            logger.info("MatrixAssembler30m instantiated")
+            
+        if MatrixAssembler5m:
+            self.components['matrix_5m'] = MatrixAssembler5m(self.config)
+            logger.info("MatrixAssembler5m instantiated")
+            
+        if MatrixAssemblerRegime:
+            self.components['matrix_regime'] = MatrixAssemblerRegime(self.config)
+            logger.info("MatrixAssemblerRegime instantiated")
+        
+        # Intelligence Layer
+        if SynergyDetector:
+            self.components['synergy_detector'] = SynergyDetector(self.config, self.event_bus)
+            logger.info("SynergyDetector instantiated")
+        
+        # Pre-trained models
+        if RegimeDetectionEngine:
+            self.components['rde'] = RegimeDetectionEngine(self.config)
+            logger.info("RegimeDetectionEngine instantiated")
+        
+        if RiskManagementSubsystem:
+            self.components['m_rms'] = RiskManagementSubsystem(self.config)
+            logger.info("RiskManagementSubsystem instantiated")
+        
+        # Main MARL Core
+        if MainMARLCore:
+            self.components['main_marl_core'] = MainMARLCore(self.config, self.components)
+            logger.info("MainMARLCore instantiated")
+        
+        # Execution Layer
+        exec_mode = self.config.get('execution', {}).get('mode', 'backtest')
+        if exec_mode == 'live':
+            if LiveExecutionHandler:
+                self.components['execution_handler'] = LiveExecutionHandler(self.config, self.event_bus)
+                logger.info("LiveExecutionHandler instantiated")
+        else:
+            if BacktestExecutionHandler:
+                self.components['execution_handler'] = BacktestExecutionHandler(self.config, self.event_bus)
+                logger.info("BacktestExecutionHandler instantiated")
+        
+        logger.info(f"Total components instantiated: {len(self.components)}")
+
+    def _wire_events(self) -> None:
+        """Connects all components via event subscriptions."""
+        # Data Flow Events
+        if 'bar_generator' in self.components:
+            self.event_bus.subscribe('NEW_TICK', self.components['bar_generator'].on_new_tick)
+            logger.info("Wired: NEW_TICK -> BarGenerator")
+        
+        if 'indicator_engine' in self.components:
+            self.event_bus.subscribe('NEW_5MIN_BAR', self.components['indicator_engine'].on_new_bar)
+            self.event_bus.subscribe('NEW_30MIN_BAR', self.components['indicator_engine'].on_new_bar)
+            logger.info("Wired: NEW_*_BAR -> IndicatorEngine")
+        
+        # Matrix Assembly Events
+        for matrix_name in ['matrix_30m', 'matrix_5m', 'matrix_regime']:
+            if matrix_name in self.components:
+                self.event_bus.subscribe('INDICATORS_READY', 
+                                       self.components[matrix_name].on_indicators_ready)
+                logger.info(f"Wired: INDICATORS_READY -> {matrix_name}")
+        
+        # Decision Flow Events
+        if 'synergy_detector' in self.components:
+            self.event_bus.subscribe('INDICATORS_READY', 
+                                   self.components['synergy_detector'].check_synergy)
+            logger.info("Wired: INDICATORS_READY -> SynergyDetector")
+        
+        if 'main_marl_core' in self.components:
+            self.event_bus.subscribe('SYNERGY_DETECTED', 
+                                   self.components['main_marl_core'].initiate_qualification)
+            logger.info("Wired: SYNERGY_DETECTED -> MainMARLCore")
+        
+        if 'execution_handler' in self.components:
+            self.event_bus.subscribe('EXECUTE_TRADE', 
+                                   self.components['execution_handler'].execute_trade)
+            logger.info("Wired: EXECUTE_TRADE -> ExecutionHandler")
+        
+        # Feedback Loop Events
+        if 'main_marl_core' in self.components:
+            self.event_bus.subscribe('TRADE_CLOSED', 
+                                   self.components['main_marl_core'].record_outcome)
+            logger.info("Wired: TRADE_CLOSED -> MainMARLCore")
+        
+        # System Events
+        self.event_bus.subscribe('SYSTEM_ERROR', self._handle_system_error)
+        self.event_bus.subscribe('SHUTDOWN_REQUEST', lambda _: self.shutdown())
+        
+        logger.info("Event wiring completed")
+
+    def _initialize_components(self) -> None:
+        """Initialize components that require post-instantiation setup."""
+        # Load pre-trained models
+        if 'rde' in self.components:
+            model_path = self.config.get('models', {}).get('rde_path')
+            if model_path and hasattr(self.components['rde'], 'load_model'):
+                try:
+                    self.components['rde'].load_model(model_path)
+                    logger.info(f"RDE model loaded from: {model_path}")
+                except Exception as e:
+                    logger.error(f"Failed to load RDE model: {e}")
+        
+        if 'm_rms' in self.components:
+            model_path = self.config.get('models', {}).get('mrms_path')
+            if model_path and hasattr(self.components['m_rms'], 'load_model'):
+                try:
+                    self.components['m_rms'].load_model(model_path)
+                    logger.info(f"M-RMS model loaded from: {model_path}")
+                except Exception as e:
+                    logger.error(f"Failed to load M-RMS model: {e}")
+        
+        if 'main_marl_core' in self.components:
+            if hasattr(self.components['main_marl_core'], 'load_models'):
+                try:
+                    self.components['main_marl_core'].load_models()
+                    logger.info("MARL models loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load MARL models: {e}")
+
+    def _handle_system_error(self, error_info: Dict[str, Any]) -> None:
+        """
+        Handles system-wide errors.
         
         Args:
-            name: Component name
-            kernel: System kernel instance
+            error_info: Dictionary containing error details.
         """
-        self.name = name
-        self.kernel = kernel
-        self.config = kernel.get_config()
-        self.event_bus = kernel.get_event_bus()
-        self.logger = get_logger(f"{self.__class__.__name__}({name})")
+        logger.error(f"System error: {error_info}")
         
-        self.is_running = False
-    
-    async def start(self) -> None:
-        """Start the component (override in subclasses)"""
-        self.is_running = True
-        self.logger.info(f"Component {self.name} started")
-    
-    async def stop(self) -> None:
-        """Stop the component (override in subclasses)"""
-        self.is_running = False
-        self.logger.info(f"Component {self.name} stopped")
-    
-    def subscribe_to_event(self, event_type: EventType, callback) -> None:
-        """Subscribe to an event type"""
-        self.event_bus.subscribe(event_type, callback)
-        self.logger.debug(f"Subscribed to {event_type.value}")
-    
-    def publish_event(self, event_type: EventType, payload: Any) -> None:
-        """Publish an event"""
-        event = self.event_bus.create_event(event_type, payload, self.name)
-        self.event_bus.publish(event)
+        # Determine if error is critical
+        if error_info.get('critical', False):
+            logger.critical("Critical error detected. Initiating shutdown.")
+            self.shutdown()
+
+    def run(self) -> None:
+        """Starts the main system loop."""
+        if not self.components:
+            raise RuntimeError("Kernel not initialized. Call initialize() first.")
+        
+        self.running = True
+        logger.info("\n=== AlgoSpace System Running ===")
+        
+        try:
+            # Start data stream
+            if 'data_handler' in self.components:
+                logger.info("Starting data stream...")
+                if hasattr(self.components['data_handler'], 'start_stream'):
+                    self.components['data_handler'].start_stream()
+            
+            # Run the event loop
+            logger.info("Starting event dispatcher...")
+            self.event_bus.dispatch_forever()
+            
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received")
+            self.shutdown()
+        except Exception as e:
+            logger.error(f"Critical error in main loop: {e}", exc_info=True)
+            self.shutdown()
+
+    def shutdown(self) -> None:
+        """Initiates a graceful shutdown of the system."""
+        if not self.running:
+            return
+            
+        logger.info("\n=== Graceful Shutdown Initiated ===")
+        self.running = False
+        
+        try:
+            # Stop data streams
+            if 'data_handler' in self.components:
+                if hasattr(self.components['data_handler'], 'stop_stream'):
+                    self.components['data_handler'].stop_stream()
+                    logger.info("Data stream stopped")
+            
+            # Close all positions
+            if 'execution_handler' in self.components:
+                if hasattr(self.components['execution_handler'], 'close_all_positions'):
+                    self.components['execution_handler'].close_all_positions()
+                    logger.info("All positions closed")
+            
+            # Save component states
+            for name, component in self.components.items():
+                if hasattr(component, 'save_state'):
+                    try:
+                        component.save_state()
+                        logger.info(f"State saved for: {name}")
+                    except Exception as e:
+                        logger.error(f"Failed to save state for {name}: {e}")
+            
+            # Stop event bus
+            self.event_bus.stop()
+            logger.info("Event bus stopped")
+            
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}", exc_info=True)
+        
+        logger.info("=== System Shutdown Complete ===")
+
+    def get_component(self, name: str) -> Optional[Any]:
+        """
+        Retrieves a component by name.
+        
+        Args:
+            name: The component name.
+            
+        Returns:
+            The component instance or None if not found.
+        """
+        return self.components.get(name)
+
+    def get_status(self) -> Dict[str, Any]:
+        """
+        Returns the current system status.
+        
+        Returns:
+            Dictionary containing system status information.
+        """
+        return {
+            'running': self.running,
+            'mode': self.config.get('data', {}).get('mode', 'unknown'),
+            'components': list(self.components.keys()),
+            'event_queue_size': self.event_bus.event_queue.qsize(),
+        }
