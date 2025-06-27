@@ -26,7 +26,9 @@ except ImportError:
     IndicatorEngine = None
 
 try:
-    from ..components.matrix_assembler import MatrixAssembler30m, MatrixAssembler5m, MatrixAssemblerRegime
+    from ..matrix.assembler_30m import MatrixAssembler30m
+    from ..matrix.assembler_5m import MatrixAssembler5m
+    from ..matrix.assembler_regime import MatrixAssemblerRegime
 except ImportError:
     MatrixAssembler30m = MatrixAssembler5m = MatrixAssemblerRegime = None
 
@@ -157,16 +159,54 @@ class AlgoSpaceKernel:
             logger.info("IndicatorEngine instantiated")
         
         # Feature Preparation - Matrix Assemblers
+        # Get matrix assemblers configuration section
+        matrix_config = self.config.get('matrix_assemblers', {})
+        
         if MatrixAssembler30m:
-            self.components['matrix_30m'] = MatrixAssembler30m(self.config)
+            # Prepare configuration for 30m assembler
+            config_30m = matrix_config.get('assembler_30m', {
+                'window_size': 48,
+                'features': [
+                    'mlmi_value', 'mlmi_signal', 'nwrqk_value', 'nwrqk_slope',
+                    'lvn_distance_points', 'lvn_nearest_strength',
+                    'time_hour_sin', 'time_hour_cos'
+                ]
+            })
+            config_30m['name'] = 'MatrixAssembler30m'
+            config_30m['kernel'] = self
+            
+            self.components['matrix_30m'] = MatrixAssembler30m(config_30m)
             logger.info("MatrixAssembler30m instantiated")
             
         if MatrixAssembler5m:
-            self.components['matrix_5m'] = MatrixAssembler5m(self.config)
+            # Prepare configuration for 5m assembler
+            config_5m = matrix_config.get('assembler_5m', {
+                'window_size': 60,
+                'features': [
+                    'fvg_bullish_active', 'fvg_bearish_active',
+                    'fvg_nearest_level', 'fvg_age', 'fvg_mitigation_signal',
+                    'price_momentum_5', 'volume_ratio'
+                ]
+            })
+            config_5m['name'] = 'MatrixAssembler5m'
+            config_5m['kernel'] = self
+            
+            self.components['matrix_5m'] = MatrixAssembler5m(config_5m)
             logger.info("MatrixAssembler5m instantiated")
             
         if MatrixAssemblerRegime:
-            self.components['matrix_regime'] = MatrixAssemblerRegime(self.config)
+            # Prepare configuration for regime assembler
+            config_regime = matrix_config.get('assembler_regime', {
+                'window_size': 96,
+                'features': [
+                    'mmd_features', 'volatility_30',
+                    'volume_profile_skew', 'price_acceleration'
+                ]
+            })
+            config_regime['name'] = 'MatrixAssemblerRegime'
+            config_regime['kernel'] = self
+            
+            self.components['matrix_regime'] = MatrixAssemblerRegime(config_regime)
             logger.info("MatrixAssemblerRegime instantiated")
         
         # Intelligence Layer
@@ -381,3 +421,12 @@ class AlgoSpaceKernel:
             'components': list(self.components.keys()),
             'event_queue_size': self.event_bus.event_queue.qsize(),
         }
+    
+    def get_event_bus(self) -> EventBus:
+        """
+        Returns the system event bus.
+        
+        Returns:
+            The EventBus instance.
+        """
+        return self.event_bus

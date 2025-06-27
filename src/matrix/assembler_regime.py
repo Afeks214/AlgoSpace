@@ -1,9 +1,11 @@
 """
 MatrixAssemblerRegime - Market Regime Detection Matrix
 
-This assembler creates a 96xN matrix capturing 48 hours of market behavior
-using 30-minute bars. It focuses on Market Microstructure Dynamics (MMD)
-features and additional regime indicators for the Regime Detection Engine.
+This assembler creates a matrix capturing market behavior using 30-minute bars.
+It focuses on Market Microstructure Dynamics (MMD) features and additional 
+regime indicators for the Regime Detection Engine.
+
+Configuration is now driven externally from settings.yaml.
 """
 
 import numpy as np
@@ -22,49 +24,33 @@ class MatrixAssemblerRegime(BaseMatrixAssembler):
     """
     Regime detection input matrix.
     
-    Features:
-    - MMD feature array (variable length, typically 8-12 dimensions)
-    - volatility_30: 30-period volatility measure
-    - volume_profile_skew: Skewness of volume distribution
-    - price_acceleration: Second derivative of price movement
+    All configuration including window_size and features list
+    is now provided externally via the config parameter.
     
-    Matrix shape: (96, N) where N depends on MMD dimensionality
-    Represents 48 hours of 30-minute bars for regime context
+    This class contains only the specialized preprocessing and
+    normalization logic for regime detection features.
     """
     
-    def __init__(self, name: str, kernel: Any):
-        """Initialize MatrixAssemblerRegime."""
-        # Load configuration
-        config = kernel.config.get('matrix_assemblers', {}).get('regime', {})
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize MatrixAssemblerRegime with external configuration.
         
-        # Determine MMD dimension from indicator config
-        mmd_config = kernel.config.get('indicators', {}).get('mmd', {})
-        mmd_dimension = mmd_config.get('signature_degree', 3) * 2 + 2  # Default: 8
+        Args:
+            config: Configuration dictionary from settings.yaml
+        """
+        # Call parent constructor with config
+        super().__init__(config)
         
-        # Build feature list dynamically based on MMD dimension
-        mmd_features = [f'mmd_feature_{i}' for i in range(mmd_dimension)]
+        # Determine MMD dimension from features
+        self.mmd_dimension = 0
+        for feature in self.feature_names:
+            if feature.startswith('mmd_feature_'):
+                self.mmd_dimension += 1
         
-        # Set default configuration if not provided
-        if not config:
-            config = {
-                'window_size': 96,  # 48 hours of 30-min bars
-                'features': mmd_features + [
-                    'volatility_30',
-                    'volume_profile_skew',
-                    'price_acceleration'
-                ],
-                'warmup_period': 30,  # Need history for volatility calc
-                'feature_configs': {
-                    'volatility_30': {'ema_alpha': 0.05},
-                    'volume_profile_skew': {'ema_alpha': 0.02},
-                    'price_acceleration': {'ema_alpha': 0.1}
-                }
-            }
-        
-        super().__init__(name, kernel, config)
-        
-        # MMD configuration
-        self.mmd_dimension = mmd_dimension
+        # If no individual MMD features, check for array feature
+        if self.mmd_dimension == 0 and 'mmd_features' in self.feature_names:
+            # MMD dimension will be determined dynamically
+            self.mmd_dimension = -1  # Flag for dynamic dimension
         
         # Price and volume history for calculations
         self.price_history = deque(maxlen=31)  # For 30-period volatility
@@ -83,65 +69,96 @@ class MatrixAssemblerRegime(BaseMatrixAssembler):
         self.percentile_trackers = {}
         
         self.logger.info(
-            f"MatrixAssemblerRegime initialized with MMD dimension {mmd_dimension}, "
-            f"total features: {self.n_features}"
+            f"MatrixAssemblerRegime initialized with {self.n_features} features, "
+            f"MMD dimension: {self.mmd_dimension if self.mmd_dimension > 0 else 'dynamic'}"
         )
     
     def extract_features(self, feature_store: Dict[str, Any]) -> Optional[List[float]]:
         """
-        Extract regime detection features from feature store.
+        Extract regime detection features from feature store with custom logic.
+        
+        Returns None to trigger safe extraction for most features.
         
         Args:
             feature_store: Complete feature dictionary from IndicatorEngine
             
         Returns:
-            List of raw feature values or None if extraction fails
+            List of raw feature values or None to use default extraction
         """
-        try:
-            # Extract MMD features
-            mmd_features = feature_store.get('mmd_features', [])
-            if len(mmd_features) != self.mmd_dimension:
-                self.logger.warning(
-                    f"MMD dimension mismatch: expected {self.mmd_dimension}, "
-                    f"got {len(mmd_features)}"
-                )
-                # Pad or truncate as needed
-                if len(mmd_features) < self.mmd_dimension:
-                    mmd_features.extend([0.0] * (self.mmd_dimension - len(mmd_features)))
-                else:
-                    mmd_features = mmd_features[:self.mmd_dimension]
+        # Update price and volume history
+        current_price = feature_store.get('current_price', 0)
+        if current_price == 0:
+            current_price = feature_store.get('close', 0)
             
-            # Update price history
-            current_price = feature_store.get('current_price', 0)
-            if current_price > 0:
-                self.price_history.append(current_price)
+        if current_price > 0:
+            self.price_history.append(current_price)
+        
+        current_volume = feature_store.get('current_volume', 0)
+        if current_volume == 0:
+            current_volume = feature_store.get('volume', 0)
             
-            # Update volume history
-            current_volume = feature_store.get('current_volume', 0)
-            if current_volume >= 0:
-                self.volume_history.append(current_volume)
+        if current_volume >= 0:
+            self.volume_history.append(current_volume)
+        
+        # Check if we need custom calculations
+        needs_custom = False
+        custom_features = ['volatility_30', 'volume_profile_skew', 'price_acceleration']
+        
+        for feature in custom_features:
+            if feature in self.feature_names:
+                needs_custom = True
+                break
+                
+        # Handle MMD features array
+        if 'mmd_features' in self.feature_names:
+            needs_custom = True
             
-            # Calculate volatility
-            volatility = self._calculate_volatility()
-            
-            # Calculate volume profile skew
-            volume_skew = self._calculate_volume_skew()
-            
-            # Calculate price acceleration
-            price_acceleration = self._calculate_price_acceleration()
-            
-            # Compile all features
-            features = list(mmd_features) + [
-                volatility,
-                volume_skew,
-                price_acceleration
-            ]
-            
-            return features
-            
-        except Exception as e:
-            self.logger.error(f"Feature extraction failed: {e}")
+        if not needs_custom:
+            # Use default safe extraction
             return None
+            
+        # Build features list with custom calculations
+        features = []
+        
+        for feature_name in self.feature_names:
+            if feature_name == 'volatility_30':
+                volatility = self._calculate_volatility()
+                features.append(volatility)
+                
+            elif feature_name == 'volume_profile_skew':
+                skew = self._calculate_volume_skew()
+                features.append(skew)
+                
+            elif feature_name == 'price_acceleration':
+                acceleration = self._calculate_price_acceleration()
+                features.append(acceleration)
+                
+            elif feature_name == 'mmd_features':
+                # Handle MMD features array
+                mmd_array = feature_store.get('mmd_features', [])
+                if isinstance(mmd_array, np.ndarray):
+                    mmd_array = mmd_array.tolist()
+                # Flatten the array into individual features
+                features.extend(mmd_array)
+                # Update dynamic dimension if needed
+                if self.mmd_dimension == -1:
+                    self.mmd_dimension = len(mmd_array)
+                    
+            elif feature_name.startswith('mmd_feature_'):
+                # Individual MMD feature
+                idx = int(feature_name.split('_')[-1])
+                mmd_array = feature_store.get('mmd_features', [])
+                if isinstance(mmd_array, (list, np.ndarray)) and idx < len(mmd_array):
+                    features.append(float(mmd_array[idx]))
+                else:
+                    features.append(0.0)
+                    
+            else:
+                # Use safe extraction
+                value = feature_store.get(feature_name, 0.0)
+                features.append(value)
+        
+        return features
     
     def _calculate_volatility(self) -> float:
         """
@@ -255,44 +272,47 @@ class MatrixAssemblerRegime(BaseMatrixAssembler):
         """
         Preprocess features for neural network input.
         
-        MMD features are already normalized, others need specific handling.
+        MMD features are typically already normalized, others need specific handling.
         """
         processed = np.zeros(len(raw_features), dtype=np.float32)
         
         try:
-            # Process MMD features (already normalized from MMD engine)
-            for i in range(self.mmd_dimension):
-                if i < len(raw_features):
-                    # MMD features should already be in reasonable range
+            # Process each feature based on its name
+            for i, (feature_name, value) in enumerate(zip(self.feature_names, raw_features)):
+                
+                # Handle MMD features
+                if feature_name.startswith('mmd_feature_') or feature_name == 'mmd_features':
+                    # MMD features should already be normalized
                     # Just ensure they're not extreme
-                    processed[i] = np.clip(raw_features[i], -3.0, 3.0)
-            
-            # Process volatility
-            volatility_idx = self.mmd_dimension
-            if volatility_idx < len(raw_features):
-                volatility = raw_features[volatility_idx]
-                # Use rolling normalization
-                normalizer = self.normalizers.get('volatility_30')
-                if normalizer and normalizer.n_samples > 10:
-                    processed[volatility_idx] = normalizer.normalize_zscore(volatility)
-                    processed[volatility_idx] = np.clip(processed[volatility_idx], -2, 2)
+                    processed[i] = np.clip(value, -3.0, 3.0)
+                    
+                elif feature_name == 'volatility_30':
+                    # Use rolling normalization
+                    normalizer = self.normalizers.get('volatility_30')
+                    if normalizer and normalizer.n_samples > 10:
+                        processed[i] = normalizer.normalize_zscore(value)
+                        processed[i] = np.clip(processed[i], -2, 2)
+                    else:
+                        # During warmup, assume 1% daily vol is normal
+                        processed[i] = np.tanh(value / 1.0)
+                        
+                elif feature_name == 'volume_profile_skew':
+                    # Skew is already in [-3, 3] range, scale to [-1, 1]
+                    processed[i] = value / 3.0
+                    
+                elif feature_name == 'price_acceleration':
+                    # Acceleration is in [-5, 5] range, scale to [-1, 1]
+                    processed[i] = value / 5.0
+                    
                 else:
-                    # During warmup, assume 1% daily vol is normal
-                    processed[volatility_idx] = np.tanh(volatility / 1.0)
-            
-            # Process volume skew
-            skew_idx = self.mmd_dimension + 1
-            if skew_idx < len(raw_features):
-                skew = raw_features[skew_idx]
-                # Skew is already in [-3, 3] range, scale to [-1, 1]
-                processed[skew_idx] = skew / 3.0
-            
-            # Process price acceleration
-            accel_idx = self.mmd_dimension + 2
-            if accel_idx < len(raw_features):
-                acceleration = raw_features[accel_idx]
-                # Acceleration is in [-5, 5] range, scale to [-1, 1]
-                processed[accel_idx] = acceleration / 5.0
+                    # Default processing for unknown features
+                    normalizer = self.normalizers.get(feature_name)
+                    if normalizer and normalizer.n_samples > 10:
+                        processed[i] = normalizer.normalize_zscore(value)
+                        processed[i] = np.clip(processed[i], -3, 3) / 3
+                    else:
+                        # Simple clipping for safety
+                        processed[i] = np.clip(value, -10, 10) / 10
             
             # Final safety check
             if not np.all(np.isfinite(processed)):
@@ -304,16 +324,6 @@ class MatrixAssemblerRegime(BaseMatrixAssembler):
         except Exception as e:
             self.logger.error(f"Feature preprocessing failed: {e}")
             return np.zeros(len(raw_features), dtype=np.float32)
-    
-    def get_feature_names(self) -> List[str]:
-        """Get human-readable feature names."""
-        names = [f"MMD Feature {i}" for i in range(self.mmd_dimension)]
-        names.extend([
-            "Volatility (30-period)",
-            "Volume Profile Skew",
-            "Price Acceleration"
-        ])
-        return names
     
     def get_regime_summary(self) -> Dict[str, Any]:
         """
@@ -333,37 +343,48 @@ class MatrixAssemblerRegime(BaseMatrixAssembler):
             # Analyze recent regime patterns
             recent_data = matrix[-20:] if len(matrix) >= 20 else matrix
             
-            # MMD summary (first N features)
-            mmd_features = recent_data[:, :self.mmd_dimension]
-            mmd_mean = np.mean(mmd_features, axis=0)
-            mmd_std = np.std(mmd_features, axis=0)
+            # Find feature indices
+            vol_idx = None
+            skew_idx = None
+            accel_idx = None
             
-            # Other features
-            volatility_mean = np.mean(recent_data[:, self.mmd_dimension])
-            volume_skew_mean = np.mean(recent_data[:, self.mmd_dimension + 1])
-            accel_mean = np.mean(recent_data[:, self.mmd_dimension + 2])
+            for i, feature_name in enumerate(self.feature_names):
+                if feature_name == 'volatility_30':
+                    vol_idx = i
+                elif feature_name == 'volume_profile_skew':
+                    skew_idx = i
+                elif feature_name == 'price_acceleration':
+                    accel_idx = i
+            
+            # Calculate statistics
+            result = {
+                "status": "ready",
+                "regime_indicators": {}
+            }
+            
+            if vol_idx is not None:
+                result["regime_indicators"]["avg_volatility"] = float(np.mean(recent_data[:, vol_idx]))
+                
+            if skew_idx is not None:
+                result["regime_indicators"]["avg_volume_skew"] = float(np.mean(recent_data[:, skew_idx]))
+                
+            if accel_idx is not None:
+                result["regime_indicators"]["avg_acceleration"] = float(np.mean(recent_data[:, accel_idx]))
             
             # Regime stability (how much features are changing)
             feature_changes = np.diff(recent_data, axis=0)
             stability_score = 1.0 - np.mean(np.abs(feature_changes))
+            result["regime_indicators"]["stability_score"] = float(stability_score)
             
-            return {
-                "status": "ready",
-                "mmd_summary": {
-                    "mean_vector": mmd_mean.tolist(),
-                    "std_vector": mmd_std.tolist(),
-                    "dimensionality": self.mmd_dimension
-                },
-                "regime_indicators": {
-                    "avg_volatility": float(volatility_mean),
-                    "avg_volume_skew": float(volume_skew_mean),
-                    "avg_acceleration": float(accel_mean),
-                    "stability_score": float(stability_score)
-                },
-                "interpretation": self._interpret_regime(
-                    volatility_mean, volume_skew_mean, accel_mean, stability_score
-                )
-            }
+            # Add interpretation
+            result["interpretation"] = self._interpret_regime(
+                result["regime_indicators"].get("avg_volatility", 0),
+                result["regime_indicators"].get("avg_volume_skew", 0),
+                result["regime_indicators"].get("avg_acceleration", 0),
+                stability_score
+            )
+            
+            return result
     
     def _interpret_regime(
         self, 

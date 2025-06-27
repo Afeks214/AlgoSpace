@@ -4,6 +4,9 @@ Base Matrix Assembler Implementation
 Provides the foundation for all matrix assemblers with thread-safe
 circular buffer management, robust error handling, and efficient
 memory usage.
+
+Refactored to accept configuration-driven initialization with
+enhanced error handling for missing features.
 """
 
 import numpy as np
@@ -29,26 +32,42 @@ class BaseMatrixAssembler(ABC):
     - Common normalization utilities
     - Robust error handling and logging
     - Memory-efficient matrix management
+    - Configuration-driven initialization
     """
     
-    def __init__(self, name: str, kernel: Any, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]):
         """
-        Initialize base matrix assembler.
+        Initialize base matrix assembler from configuration.
         
         Args:
-            name: Component name
-            kernel: System kernel reference
-            config: Configuration dictionary
+            config: Configuration dictionary containing:
+                - name: Component name
+                - window_size: Number of historical bars to maintain
+                - features: List of feature names to extract
+                - kernel: System kernel reference
+                - warmup_period: Optional warmup period (defaults to window_size)
+                - feature_configs: Optional per-feature configuration
         """
-        self.name = name
-        self.kernel = kernel
-        self.config = config
-        self.logger = get_logger(name)
+        # Extract required configuration
+        self.name = config.get('name', 'MatrixAssembler')
+        self.kernel = config.get('kernel')
         
-        # Extract configuration
-        self.window_size = config.get('window_size', 48)
-        self.features = config.get('features', [])
-        self.n_features = len(self.features)
+        if not self.kernel:
+            raise ValueError("Kernel reference is required in configuration")
+        
+        self.logger = get_logger(self.name)
+        
+        # Extract matrix configuration
+        self.window_size = config.get('window_size')
+        self.feature_names = config.get('features', [])
+        
+        if not self.window_size:
+            raise ValueError("window_size is required in configuration")
+        
+        if not self.feature_names:
+            raise ValueError("features list is required in configuration")
+        
+        self.n_features = len(self.feature_names)
         
         # Initialize matrix as float32 for neural network efficiency
         self.matrix = np.zeros((self.window_size, self.n_features), dtype=np.float32)
@@ -63,7 +82,7 @@ class BaseMatrixAssembler(ABC):
         
         # Normalization tracking
         self.normalizers: Dict[str, RollingNormalizer] = {}
-        self._init_normalizers()
+        self._init_normalizers(config)
         
         # Performance tracking
         self.last_update_time = None
@@ -72,24 +91,30 @@ class BaseMatrixAssembler(ABC):
         # Error tracking
         self.error_count = 0
         self.last_error_time = None
+        self.missing_feature_warnings: Dict[str, int] = {}  # Track missing features
         
         # State tracking
         self._is_ready = False
         self._warmup_period = config.get('warmup_period', self.window_size)
         
+        # Store full config for subclasses
+        self.config = config
+        
         # Subscribe to events
         self._subscribe_to_events()
         
         self.logger.info(
-            f"Initialized {name} with window_size={self.window_size}, "
-            f"n_features={self.n_features}"
+            f"Initialized {self.name} with window_size={self.window_size}, "
+            f"n_features={self.n_features}, features={self.feature_names}"
         )
     
-    def _init_normalizers(self) -> None:
+    def _init_normalizers(self, config: Dict[str, Any]) -> None:
         """Initialize rolling normalizers for each feature."""
-        for feature in self.features:
+        feature_configs = config.get('feature_configs', {})
+        
+        for feature in self.feature_names:
             # Feature-specific configuration
-            feature_config = self.config.get('feature_configs', {}).get(feature, {})
+            feature_config = feature_configs.get(feature, {})
             alpha = feature_config.get('ema_alpha', 0.01)
             warmup = feature_config.get('warmup_samples', 100)
             
@@ -129,13 +154,13 @@ class BaseMatrixAssembler(ABC):
     
     def _update_matrix(self, feature_store: Dict[str, Any]) -> None:
         """
-        Update matrix with new features.
+        Update matrix with new features using robust extraction.
         
         Args:
             feature_store: Dictionary of current feature values
         """
-        # Extract features
-        raw_features = self.extract_features(feature_store)
+        # Extract features with error handling
+        raw_features = self._extract_features_safely(feature_store)
         
         if raw_features is None:
             self.logger.warning("No features extracted, skipping update")
@@ -150,7 +175,7 @@ class BaseMatrixAssembler(ABC):
             return
         
         # Update normalizers
-        for i, (feature_name, value) in enumerate(zip(self.features, raw_features)):
+        for i, (feature_name, value) in enumerate(zip(self.feature_names, raw_features)):
             if not np.isfinite(value):
                 self.logger.warning(f"Non-finite value for {feature_name}: {value}")
                 raw_features[i] = 0.0  # Safe default
@@ -180,11 +205,80 @@ class BaseMatrixAssembler(ABC):
         # Log periodically
         if self.n_updates % 100 == 0:
             self.logger.debug(f"Processed {self.n_updates} updates")
+            # Log missing feature warnings summary
+            if self.missing_feature_warnings:
+                self.logger.warning(
+                    f"Missing feature summary: {dict(self.missing_feature_warnings)}"
+                )
+    
+    def _extract_features_safely(self, feature_store: Dict[str, Any]) -> Optional[List[float]]:
+        """
+        Extract features from feature store with robust error handling.
+        
+        This method uses .get() with default values and logs warnings for
+        missing features instead of raising exceptions.
+        
+        Args:
+            feature_store: Complete feature dictionary from IndicatorEngine
+            
+        Returns:
+            List of raw feature values or None if extraction fails critically
+        """
+        try:
+            # First let subclass attempt extraction
+            features = self.extract_features(feature_store)
+            
+            if features is not None:
+                return features
+            
+            # Fallback: Extract features based on feature_names with defaults
+            raw_features = []
+            
+            for feature_name in self.feature_names:
+                # Use .get() with default value of 0.0
+                value = feature_store.get(feature_name, 0.0)
+                
+                # Check if feature was missing
+                if feature_name not in feature_store:
+                    # Track missing feature occurrences
+                    if feature_name not in self.missing_feature_warnings:
+                        self.missing_feature_warnings[feature_name] = 0
+                    self.missing_feature_warnings[feature_name] += 1
+                    
+                    # Log warning (but not every time to avoid spam)
+                    if self.missing_feature_warnings[feature_name] <= 5 or \
+                       self.missing_feature_warnings[feature_name] % 100 == 0:
+                        self.logger.warning(
+                            f"Feature '{feature_name}' not found in Feature Store. "
+                            f"Using default value 0.0. "
+                            f"(Occurrence #{self.missing_feature_warnings[feature_name]})"
+                        )
+                
+                # Convert to float if necessary
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        f"Feature '{feature_name}' has non-numeric value: {value}. "
+                        f"Using default value 0.0."
+                    )
+                    value = 0.0
+                
+                raw_features.append(value)
+            
+            return raw_features
+            
+        except Exception as e:
+            self.logger.error(f"Critical error in feature extraction: {e}", exc_info=True)
+            return None
     
     @abstractmethod
     def extract_features(self, feature_store: Dict[str, Any]) -> Optional[List[float]]:
         """
         Extract relevant features from feature store.
+        
+        This method can be overridden by subclasses for custom extraction logic.
+        Return None to trigger the default safe extraction.
         
         Args:
             feature_store: Complete feature store from IndicatorEngine
@@ -275,7 +369,8 @@ class BaseMatrixAssembler(ABC):
                 'current_index': self.current_index,
                 'error_count': self.error_count,
                 'last_error_time': self.last_error_time,
-                'features': self.features
+                'features': self.feature_names,
+                'missing_features': dict(self.missing_feature_warnings)
             }
             
             # Add performance stats
@@ -314,9 +409,10 @@ class BaseMatrixAssembler(ABC):
             self.error_count = 0
             self.last_error_time = None
             self.update_latencies.clear()
+            self.missing_feature_warnings.clear()
             
             # Reset normalizers
-            self._init_normalizers()
+            self._init_normalizers(self.config)
             
             self.logger.info("Matrix assembler reset")
     
@@ -344,6 +440,14 @@ class BaseMatrixAssembler(ABC):
             if self.n_updates > 0 and self.current_index >= self.window_size:
                 issues.append("Current index exceeds window size")
             
+            # Check for persistent missing features
+            critical_missing = [
+                f for f, count in self.missing_feature_warnings.items()
+                if count > self.n_updates * 0.5  # Missing more than 50% of the time
+            ]
+            if critical_missing:
+                issues.append(f"Critical features frequently missing: {critical_missing}")
+        
         is_valid = len(issues) == 0
         return is_valid, issues
     

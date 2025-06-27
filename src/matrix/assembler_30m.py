@@ -1,9 +1,11 @@
 """
 MatrixAssembler30m - Long-term Market Structure Matrix
 
-This assembler creates a 48x8 matrix capturing 24 hours of market structure
-using 30-minute bars. It focuses on trend, momentum, and support/resistance
-dynamics for strategic decision making.
+This assembler creates a matrix capturing market structure using 30-minute bars.
+It focuses on trend, momentum, and support/resistance dynamics for strategic
+decision making.
+
+Configuration is now driven externally from settings.yaml.
 """
 
 import numpy as np
@@ -21,47 +23,22 @@ class MatrixAssembler30m(BaseMatrixAssembler):
     """
     Long-term structure analyzer input matrix.
     
-    Features:
-    1. mlmi_value: Machine Learning Market Index (0-100)
-    2. mlmi_signal: Crossover signal (-1, 0, 1)
-    3. nwrqk_value: Nadaraya-Watson regression value
-    4. nwrqk_slope: Rate of change of NW-RQK
-    5. lvn_distance_points: Distance to nearest LVN in points
-    6. lvn_nearest_strength: Strength of nearest LVN (0-100)
-    7. time_hour_sin: Cyclical encoding of hour (sin component)
-    8. time_hour_cos: Cyclical encoding of hour (cos component)
+    All configuration including window_size and features list
+    is now provided externally via the config parameter.
     
-    Matrix shape: (48, 8) representing 24 hours of 30-minute bars
+    This class contains only the specialized preprocessing and
+    normalization logic for 30-minute timeframe features.
     """
     
-    def __init__(self, name: str, kernel: Any):
-        """Initialize MatrixAssembler30m."""
-        # Load configuration
-        config = kernel.config.get('matrix_assemblers', {}).get('30m', {})
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize MatrixAssembler30m with external configuration.
         
-        # Set default configuration if not provided
-        if not config:
-            config = {
-                'window_size': 48,  # 24 hours of 30-min bars
-                'features': [
-                    'mlmi_value',
-                    'mlmi_signal', 
-                    'nwrqk_value',
-                    'nwrqk_slope',
-                    'lvn_distance_points',
-                    'lvn_nearest_strength',
-                    'time_hour_sin',
-                    'time_hour_cos'
-                ],
-                'warmup_period': 48,
-                'feature_configs': {
-                    'mlmi_value': {'ema_alpha': 0.02},
-                    'nwrqk_slope': {'ema_alpha': 0.05},
-                    'lvn_distance_points': {'ema_alpha': 0.01}
-                }
-            }
-        
-        super().__init__(name, kernel, config)
+        Args:
+            config: Configuration dictionary from settings.yaml
+        """
+        # Call parent constructor with config
+        super().__init__(config)
         
         # Cache for current price (needed for percentage calculations)
         self.current_price = None
@@ -71,70 +48,61 @@ class MatrixAssembler30m(BaseMatrixAssembler):
         self.price_ema_alpha = 0.001  # Slow adaptation for price level
         
         self.logger.info(
-            "MatrixAssembler30m initialized for long-term structure analysis"
+            f"MatrixAssembler30m initialized for long-term structure analysis "
+            f"with {self.n_features} features and window_size={self.window_size}"
         )
     
     def extract_features(self, feature_store: Dict[str, Any]) -> Optional[List[float]]:
         """
-        Extract 30-minute features from feature store.
+        Extract 30-minute features from feature store with custom logic.
+        
+        Returns None to trigger safe extraction if custom logic is not needed.
         
         Args:
             feature_store: Complete feature dictionary from IndicatorEngine
             
         Returns:
-            List of raw feature values or None if extraction fails
+            List of raw feature values or None to use default extraction
         """
-        try:
-            # Update current price
-            self.current_price = feature_store.get('current_price', self.current_price)
-            if self.current_price is None:
-                self.logger.error("No current price available")
-                return None
+        # Update current price if available
+        self.current_price = feature_store.get('current_price', self.current_price)
+        if self.current_price is None:
+            # Try to get from close price
+            self.current_price = feature_store.get('close', None)
             
-            # Update price EMA
-            if self.price_ema is None:
-                self.price_ema = self.current_price
-            else:
-                self.price_ema += self.price_ema_alpha * (self.current_price - self.price_ema)
-            
-            # Extract core features
-            mlmi_value = feature_store.get('mlmi_value', 50.0)  # Default neutral
-            mlmi_signal = feature_store.get('mlmi_signal', 0)
-            nwrqk_value = feature_store.get('nwrqk_value', self.current_price)
-            nwrqk_slope = feature_store.get('nwrqk_slope', 0.0)
-            
-            # LVN features
-            lvn_distance = feature_store.get('lvn_distance_points', 0.0)
-            lvn_strength = feature_store.get('lvn_nearest_strength', 0.0)
-            
-            # Time features (for cyclical encoding)
+        if self.current_price is None:
+            self.logger.error("No current price available")
+            return None
+        
+        # Update price EMA
+        if self.price_ema is None:
+            self.price_ema = self.current_price
+        else:
+            self.price_ema += self.price_ema_alpha * (self.current_price - self.price_ema)
+        
+        # Handle time features specially if they're in the feature list
+        if 'time_hour_sin' in self.feature_names or 'time_hour_cos' in self.feature_names:
+            # Extract timestamp for cyclical encoding
             timestamp = feature_store.get('timestamp', datetime.now())
             if isinstance(timestamp, str):
                 timestamp = datetime.fromisoformat(timestamp)
             hour = timestamp.hour + timestamp.minute / 60.0  # Fractional hour
             
-            # Validate features
-            features = [
-                mlmi_value,
-                float(mlmi_signal),
-                nwrqk_value,
-                nwrqk_slope,
-                lvn_distance,
-                lvn_strength,
-                hour,  # Will be split into sin/cos during preprocessing
-                hour   # Placeholder for cos component
-            ]
-            
-            # Check for validity
-            if not all(isinstance(f, (int, float)) for f in features[:-2]):
-                self.logger.error(f"Invalid feature types: {[type(f) for f in features]}")
-                return None
+            # Build features list with special handling for time
+            features = []
+            for feature_name in self.feature_names:
+                if feature_name == 'time_hour_sin' or feature_name == 'time_hour_cos':
+                    # Both will use the same hour value, preprocessing will split them
+                    features.append(hour)
+                else:
+                    # Use safe extraction for other features
+                    value = feature_store.get(feature_name, 0.0)
+                    features.append(value)
             
             return features
-            
-        except Exception as e:
-            self.logger.error(f"Feature extraction failed: {e}")
-            return None
+        
+        # For non-time features, return None to use default safe extraction
+        return None
     
     def preprocess_features(
         self, 
@@ -150,55 +118,72 @@ class MatrixAssembler30m(BaseMatrixAssembler):
         processed = np.zeros(len(raw_features), dtype=np.float32)
         
         try:
-            # 1. MLMI Value: Scale from [0,100] to [-1,1]
-            mlmi_value = raw_features[0]
-            processed[0] = min_max_scale(mlmi_value, 0, 100, (-1, 1))
-            
-            # 2. MLMI Signal: Already in [-1, 0, 1], just ensure float
-            processed[1] = float(raw_features[1])
-            
-            # 3. NW-RQK Value: Normalize as percentage from current price
-            nwrqk_value = raw_features[2]
-            if self.current_price > 0:
-                nwrqk_pct = percentage_from_price(
-                    nwrqk_value, 
-                    self.current_price,
-                    clip_pct=5.0  # Clip at ±5%
-                )
-                # Scale percentage to [-1, 1]
-                processed[2] = nwrqk_pct / 5.0
-            else:
-                processed[2] = 0.0
-            
-            # 4. NW-RQK Slope: Use rolling z-score normalization
-            nwrqk_slope = raw_features[3]
-            normalizer = self.normalizers.get('nwrqk_slope')
-            if normalizer and normalizer.n_samples > 10:
-                processed[3] = normalizer.normalize_zscore(nwrqk_slope)
-                processed[3] = np.clip(processed[3], -2, 2) / 2  # Scale to [-1, 1]
-            else:
-                # During warmup, use simple scaling
-                processed[3] = np.tanh(nwrqk_slope * 10)  # Assumes slope ~0.1 is significant
-            
-            # 5. LVN Distance: Convert points to percentage and scale
-            lvn_distance = raw_features[4]
-            if self.current_price > 0:
-                lvn_distance_pct = (lvn_distance / self.current_price) * 100
-                # Use exponential decay - closer LVNs are more important
-                # 0% distance = 1.0, 1% distance ≈ 0.37, 2% distance ≈ 0.14
-                processed[4] = np.exp(-lvn_distance_pct)
-            else:
-                processed[4] = 0.0
-            
-            # 6. LVN Strength: Scale from [0,100] to [0,1]
-            lvn_strength = raw_features[5]
-            processed[5] = min_max_scale(lvn_strength, 0, 100, (0, 1))
-            
-            # 7-8. Time features: Cyclical encoding
-            hour = raw_features[6]
-            hour_sin, hour_cos = cyclical_encode(hour, 24)
-            processed[6] = hour_sin
-            processed[7] = hour_cos
+            # Process each feature based on its name
+            for i, (feature_name, value) in enumerate(zip(self.feature_names, raw_features)):
+                
+                if feature_name == 'mlmi_value':
+                    # MLMI Value: Scale from [0,100] to [-1,1]
+                    processed[i] = min_max_scale(value, 0, 100, (-1, 1))
+                    
+                elif feature_name == 'mlmi_signal':
+                    # MLMI Signal: Already in [-1, 0, 1], just ensure float
+                    processed[i] = float(value)
+                    
+                elif feature_name == 'nwrqk_value':
+                    # NW-RQK Value: Normalize as percentage from current price
+                    if self.current_price and self.current_price > 0:
+                        nwrqk_pct = percentage_from_price(
+                            value, 
+                            self.current_price,
+                            clip_pct=5.0  # Clip at ±5%
+                        )
+                        # Scale percentage to [-1, 1]
+                        processed[i] = nwrqk_pct / 5.0
+                    else:
+                        processed[i] = 0.0
+                        
+                elif feature_name == 'nwrqk_slope':
+                    # NW-RQK Slope: Use rolling z-score normalization
+                    normalizer = self.normalizers.get('nwrqk_slope')
+                    if normalizer and normalizer.n_samples > 10:
+                        processed[i] = normalizer.normalize_zscore(value)
+                        processed[i] = np.clip(processed[i], -2, 2) / 2  # Scale to [-1, 1]
+                    else:
+                        # During warmup, use simple scaling
+                        processed[i] = np.tanh(value * 10)  # Assumes slope ~0.1 is significant
+                        
+                elif feature_name == 'lvn_distance_points':
+                    # LVN Distance: Convert points to percentage and scale
+                    if self.current_price and self.current_price > 0:
+                        lvn_distance_pct = (value / self.current_price) * 100
+                        # Use exponential decay - closer LVNs are more important
+                        processed[i] = np.exp(-lvn_distance_pct)
+                    else:
+                        processed[i] = 0.0
+                        
+                elif feature_name == 'lvn_nearest_strength':
+                    # LVN Strength: Scale from [0,100] to [0,1]
+                    processed[i] = min_max_scale(value, 0, 100, (0, 1))
+                    
+                elif feature_name == 'time_hour_sin' or feature_name == 'time_hour_cos':
+                    # Time features: Cyclical encoding
+                    hour = value  # The raw value is the hour
+                    hour_sin, hour_cos = cyclical_encode(hour, 24)
+                    if feature_name == 'time_hour_sin':
+                        processed[i] = hour_sin
+                    else:
+                        processed[i] = hour_cos
+                        
+                else:
+                    # Default processing for unknown features
+                    # Try to use normalizer if available
+                    normalizer = self.normalizers.get(feature_name)
+                    if normalizer and normalizer.n_samples > 10:
+                        processed[i] = normalizer.normalize_zscore(value)
+                        processed[i] = np.clip(processed[i], -3, 3) / 3
+                    else:
+                        # Simple clipping for safety
+                        processed[i] = np.clip(value, -10, 10) / 10
             
             # Final safety check - ensure all values are finite
             if not np.all(np.isfinite(processed)):
@@ -215,19 +200,6 @@ class MatrixAssembler30m(BaseMatrixAssembler):
             # Return safe defaults
             return np.zeros(len(raw_features), dtype=np.float32)
     
-    def get_feature_names(self) -> List[str]:
-        """Get human-readable feature names."""
-        return [
-            "MLMI Value (scaled)",
-            "MLMI Signal",
-            "NW-RQK Value (%)",
-            "NW-RQK Slope (normalized)",
-            "LVN Distance (decay)",
-            "LVN Strength",
-            "Hour (sin)",
-            "Hour (cos)"
-        ]
-    
     def get_feature_importance(self) -> Dict[str, float]:
         """
         Get estimated feature importance for interpretation.
@@ -235,8 +207,8 @@ class MatrixAssembler30m(BaseMatrixAssembler):
         Returns:
             Dictionary mapping feature names to importance scores
         """
-        # These are heuristic importances based on strategy design
-        return {
+        # Default importance scores - can be overridden by config
+        default_importance = {
             "mlmi_value": 0.20,
             "mlmi_signal": 0.15,
             "nwrqk_value": 0.15,
@@ -246,6 +218,25 @@ class MatrixAssembler30m(BaseMatrixAssembler):
             "time_hour_sin": 0.05,
             "time_hour_cos": 0.05
         }
+        
+        # Build importance dict based on actual features
+        importance = {}
+        total = 0.0
+        
+        for feature in self.feature_names:
+            if feature in default_importance:
+                importance[feature] = default_importance[feature]
+            else:
+                # Assign equal weight to unknown features
+                importance[feature] = 0.1
+            total += importance[feature]
+        
+        # Normalize to sum to 1.0
+        if total > 0:
+            for feature in importance:
+                importance[feature] /= total
+        
+        return importance
     
     def validate_features(self, features: List[float]) -> bool:
         """
@@ -257,27 +248,38 @@ class MatrixAssembler30m(BaseMatrixAssembler):
         Returns:
             True if all features are valid
         """
-        if len(features) != 8:
+        if len(features) != self.n_features:
             return False
         
-        # Check MLMI value range
-        if not 0 <= features[0] <= 100:
-            self.logger.warning(f"MLMI value out of range: {features[0]}")
-            return False
-        
-        # Check MLMI signal
-        if features[1] not in [-1, 0, 1]:
-            self.logger.warning(f"Invalid MLMI signal: {features[1]}")
-            return False
-        
-        # Check LVN strength range
-        if not 0 <= features[5] <= 100:
-            self.logger.warning(f"LVN strength out of range: {features[5]}")
-            return False
-        
-        # Check time hour range
-        if not 0 <= features[6] < 24:
-            self.logger.warning(f"Hour out of range: {features[6]}")
-            return False
+        # Check specific features if they exist
+        for i, feature_name in enumerate(self.feature_names):
+            value = features[i]
+            
+            if feature_name == 'mlmi_value':
+                # Check MLMI value range
+                if not 0 <= value <= 100:
+                    self.logger.warning(f"MLMI value out of range: {value}")
+                    return False
+                    
+            elif feature_name == 'mlmi_signal':
+                # Check MLMI signal
+                if value not in [-1, 0, 1]:
+                    self.logger.warning(f"Invalid MLMI signal: {value}")
+                    return False
+                    
+            elif feature_name == 'lvn_nearest_strength':
+                # Check LVN strength range
+                if not 0 <= value <= 100:
+                    self.logger.warning(f"LVN strength out of range: {value}")
+                    return False
+                    
+            elif feature_name in ['time_hour_sin', 'time_hour_cos']:
+                # Time features will be validated after encoding
+                continue
+                
+            # General validation
+            if not np.isfinite(value):
+                self.logger.warning(f"Non-finite value for {feature_name}: {value}")
+                return False
         
         return True

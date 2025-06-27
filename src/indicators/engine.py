@@ -10,15 +10,14 @@ Based on Master PRD - IndicatorEngine Component v1.0
 
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from collections import deque
 import numpy as np
-import structlog
+import pandas as pd
+import copy
 
 from ..core.kernel import ComponentBase, SystemKernel
 from ..core.events import EventType, Event, BarData
-from ..utils.logger import get_logger
-from .base import BaseIndicator, IndicatorRegistry
 from ..data.validators import BarValidator
 
 # Import existing indicators
@@ -43,6 +42,9 @@ class IndicatorEngine(ComponentBase):
     - Centralized Feature Store with atomic updates
     - Single INDICATORS_READY event emission
     - Default parameter enforcement (DIR-DATA-02)
+    - Advanced feature engineering including LVN strength scores
+    - MMD feature vector with 7 reference distributions
+    - Interaction features between indicators
     """
     
     def __init__(self, name: str, kernel: SystemKernel):
@@ -88,6 +90,12 @@ class IndicatorEngine(ComponentBase):
         
         # Initialize bar validator
         self.bar_validator = BarValidator()
+        
+        # MMD Reference Distributions - 7 market archetypes
+        self.mmd_reference_distributions = self._load_reference_distributions()
+        
+        # LVN interaction history for strength calculation
+        self.lvn_interaction_history: Dict[float, List[Dict[str, Any]]] = {}
         
         # Initialize indicator instances with default parameters
         self._initialize_indicators()
@@ -164,9 +172,12 @@ class IndicatorEngine(ComponentBase):
             'fvg_age': 0,
             'fvg_mitigation_signal': False,
             
-            # Regime features
-            'mmd_features': np.array([]),
-            'volatility_regime': 'unknown',
+            # Regime features - MMD feature vector
+            'mmd_features': np.zeros(13),  # 13-dimensional feature vector
+            
+            # Interaction features
+            'mlmi_minus_nwrqk': 0.0,
+            'mlmi_div_nwrqk': 1.0,
             
             # Metadata
             'last_update_5min': None,
@@ -174,6 +185,85 @@ class IndicatorEngine(ComponentBase):
             'calculation_status': 'initialized',
             'feature_count': 0
         }
+    
+    def _load_reference_distributions(self) -> List[np.ndarray]:
+        """
+        Load 7 pre-defined reference distributions for MMD calculation
+        
+        Returns:
+            List of 7 reference distribution arrays representing market archetypes:
+            1. Strong Trending Up
+            2. Strong Trending Down
+            3. Ranging/Consolidation
+            4. High Volatility
+            5. Low Volatility
+            6. Breakout Pattern
+            7. Mean Reversion Pattern
+        """
+        # Generate synthetic reference distributions for market archetypes
+        n_samples = 100
+        n_features = 4  # returns, log_returns, range, volatility
+        
+        distributions = []
+        
+        # 1. Strong Trending Up
+        trend_up = np.zeros((n_samples, n_features))
+        trend_up[:, 0] = np.linspace(0.001, 0.005, n_samples) + np.random.normal(0, 0.0001, n_samples)
+        trend_up[:, 1] = np.log(1 + trend_up[:, 0])
+        trend_up[:, 2] = np.abs(np.random.normal(0.002, 0.0005, n_samples))
+        trend_up[:, 3] = np.full(n_samples, 0.015)
+        distributions.append(trend_up)
+        
+        # 2. Strong Trending Down
+        trend_down = np.zeros((n_samples, n_features))
+        trend_down[:, 0] = np.linspace(-0.001, -0.005, n_samples) + np.random.normal(0, 0.0001, n_samples)
+        trend_down[:, 1] = np.log(1 + trend_down[:, 0])
+        trend_down[:, 2] = np.abs(np.random.normal(0.002, 0.0005, n_samples))
+        trend_down[:, 3] = np.full(n_samples, 0.015)
+        distributions.append(trend_down)
+        
+        # 3. Ranging/Consolidation
+        ranging = np.zeros((n_samples, n_features))
+        ranging[:, 0] = np.random.normal(0, 0.001, n_samples)
+        ranging[:, 1] = np.log(1 + ranging[:, 0])
+        ranging[:, 2] = np.abs(np.random.normal(0.001, 0.0002, n_samples))
+        ranging[:, 3] = np.full(n_samples, 0.008)
+        distributions.append(ranging)
+        
+        # 4. High Volatility
+        high_vol = np.zeros((n_samples, n_features))
+        high_vol[:, 0] = np.random.normal(0, 0.01, n_samples)
+        high_vol[:, 1] = np.log(1 + high_vol[:, 0])
+        high_vol[:, 2] = np.abs(np.random.normal(0.01, 0.003, n_samples))
+        high_vol[:, 3] = np.full(n_samples, 0.03)
+        distributions.append(high_vol)
+        
+        # 5. Low Volatility
+        low_vol = np.zeros((n_samples, n_features))
+        low_vol[:, 0] = np.random.normal(0, 0.0005, n_samples)
+        low_vol[:, 1] = np.log(1 + low_vol[:, 0])
+        low_vol[:, 2] = np.abs(np.random.normal(0.0005, 0.0001, n_samples))
+        low_vol[:, 3] = np.full(n_samples, 0.005)
+        distributions.append(low_vol)
+        
+        # 6. Breakout Pattern
+        breakout = np.zeros((n_samples, n_features))
+        breakout[:50, 0] = np.random.normal(0, 0.001, 50)
+        breakout[50:, 0] = np.random.normal(0.003, 0.001, 50)
+        breakout[:, 1] = np.log(1 + breakout[:, 0])
+        breakout[:, 2] = np.abs(np.random.normal(0.003, 0.001, n_samples))
+        breakout[:, 3] = np.concatenate([np.full(50, 0.008), np.full(50, 0.02)])
+        distributions.append(breakout)
+        
+        # 7. Mean Reversion Pattern
+        mean_rev = np.zeros((n_samples, n_features))
+        mean_rev[:, 0] = np.sin(np.linspace(0, 4*np.pi, n_samples)) * 0.003 + np.random.normal(0, 0.0005, n_samples)
+        mean_rev[:, 1] = np.log(1 + mean_rev[:, 0])
+        mean_rev[:, 2] = np.abs(np.random.normal(0.002, 0.0005, n_samples))
+        mean_rev[:, 3] = np.full(n_samples, 0.012)
+        distributions.append(mean_rev)
+        
+        return distributions
     
     async def start(self) -> None:
         """Start the IndicatorEngine component"""
@@ -357,7 +447,7 @@ class IndicatorEngine(ComponentBase):
             'timestamp': bar_data.timestamp
         }
     
-    def _calculate_5min_features(self, bar_data: BarData) -> Dict[str, Any]:
+    def _calculate_5min_features(self, bar_data: BarData) -> Dict[str, Any]:  # noqa: F841
         """
         Calculate 5-minute features (FVG detection on standard candles)
         
@@ -424,9 +514,9 @@ class IndicatorEngine(ComponentBase):
             else:
                 features.update({'nwrqk_value': 0.0, 'nwrqk_slope': 0.0, 'nwrqk_signal': 0})
             
-            # Calculate LVN (on standard bar data for volume profile)
+            # Calculate LVN with enhanced strength score (on standard bar data for volume profile)
             if len(self.volume_profile_buffer) >= 20:  # Need full volume profile window
-                lvn_results = self._calculate_lvn(bar_data)
+                lvn_results = self._calculate_enhanced_lvn(bar_data)
                 features.update(lvn_results)
             else:
                 features.update({
@@ -435,12 +525,12 @@ class IndicatorEngine(ComponentBase):
                     'lvn_distance_points': 0.0
                 })
             
-            # Calculate MMD features (on standard bar data)
+            # Calculate MMD features with 7 reference distributions
             if len(self.ha_history_30m) >= 10:  # Need minimum data for path signatures
-                mmd_results = self._calculate_mmd(bar_data)
+                mmd_results = self._calculate_enhanced_mmd(bar_data)
                 features.update(mmd_results)
             else:
-                features.update({'mmd_features': np.array([])})
+                features.update({'mmd_features': np.zeros(13)})
             
             return features
             
@@ -455,7 +545,7 @@ class IndicatorEngine(ComponentBase):
                 'lvn_nearest_price': 0.0,
                 'lvn_nearest_strength': 0.0,
                 'lvn_distance_points': 0.0,
-                'mmd_features': np.array([])
+                'mmd_features': np.zeros(13)
             }
     
     def _detect_fvg(self) -> Dict[str, Any]:
@@ -480,11 +570,11 @@ class IndicatorEngine(ComponentBase):
             nearest_fvg = self._find_nearest_fvg(current_bar.close)
             
             return {
-                'fvg_bullish_active': fvg_result.get('bullish_fvg_detected', False),
-                'fvg_bearish_active': fvg_result.get('bearish_fvg_detected', False),
+                'fvg_bullish_active': fvg_result.get('fvg_bullish_active', False),
+                'fvg_bearish_active': fvg_result.get('fvg_bearish_active', False),
                 'fvg_nearest_level': nearest_fvg.get('level', 0.0),
                 'fvg_age': nearest_fvg.get('age', 0),
-                'fvg_mitigation_signal': fvg_result.get('mitigation_signal', False)
+                'fvg_mitigation_signal': fvg_result.get('fvg_mitigation_signal', False)
             }
             
         except Exception as e:
@@ -540,7 +630,7 @@ class IndicatorEngine(ComponentBase):
             ha_bar: Current Heiken Ashi bar
             
         Returns:
-            Dictionary of NW-RQK features
+            Dictionary of NW-RQK features including slope
         """
         try:
             # Create a BarData object from HA data
@@ -558,9 +648,28 @@ class IndicatorEngine(ComponentBase):
             # Use the existing NW-RQK calculator
             nwrqk_result = self.nwrqk.calculate_30m(ha_bar_data)
             
+            # Calculate slope of NW-RQK line
+            nwrqk_slope = 0.0
+            if len(self.ha_history_30m) >= 2:
+                prev_ha_bar_data = BarData(
+                    symbol=self.symbol,
+                    timestamp=self.ha_history_30m[-2]['timestamp'],
+                    open=self.ha_history_30m[-2]['open'],
+                    high=self.ha_history_30m[-2]['high'],
+                    low=self.ha_history_30m[-2]['low'],
+                    close=self.ha_history_30m[-2]['close'],
+                    volume=int(self.ha_history_30m[-2]['volume']),
+                    timeframe=30
+                )
+                prev_nwrqk = self.nwrqk.calculate_30m(prev_ha_bar_data)
+                current_value = nwrqk_result.get('nwrqk_value', 0.0)
+                prev_value = prev_nwrqk.get('nwrqk_value', 0.0)
+                if prev_value != 0:
+                    nwrqk_slope = (current_value - prev_value) / prev_value
+            
             return {
                 'nwrqk_value': nwrqk_result.get('nwrqk_value', 0.0),
-                'nwrqk_slope': nwrqk_result.get('nwrqk_slope', 0.0),
+                'nwrqk_slope': nwrqk_slope,
                 'nwrqk_signal': nwrqk_result.get('nwrqk_signal', 0)
             }
             
@@ -568,55 +677,183 @@ class IndicatorEngine(ComponentBase):
             self.logger.error("Error calculating NW-RQK", error=str(e))
             return {'nwrqk_value': 0.0, 'nwrqk_slope': 0.0, 'nwrqk_signal': 0}
     
-    def _calculate_lvn(self, bar_data: BarData) -> Dict[str, Any]:
+    def _calculate_enhanced_lvn(self, bar_data: BarData) -> Dict[str, Any]:
         """
-        Calculate LVN using the LVN analyzer on standard bar data
+        Calculate LVN with enhanced strength score based on historical interactions
         
         Args:
             bar_data: Current standard OHLCV bar
             
         Returns:
-            Dictionary of LVN features
+            Dictionary of LVN features with strength score
         """
         try:
             # Use the LVN analyzer with original bar data for volume profile
             lvn_result = self.lvn.calculate_30m(bar_data)
             
+            nearest_lvn_price = lvn_result.get('nearest_lvn_price', 0.0)
+            base_strength = lvn_result.get('nearest_lvn_strength', 0.0)
+            
+            # Calculate enhanced strength score based on historical interactions
+            enhanced_strength = self._calculate_lvn_strength_score(
+                nearest_lvn_price, 
+                base_strength,
+                bar_data.close
+            )
+            
             return {
-                'lvn_nearest_price': lvn_result.get('nearest_lvn_price', 0.0),
-                'lvn_nearest_strength': lvn_result.get('nearest_lvn_strength', 0.0),
+                'lvn_nearest_price': nearest_lvn_price,
+                'lvn_nearest_strength': enhanced_strength,
                 'lvn_distance_points': lvn_result.get('distance_to_nearest_lvn', 0.0)
             }
             
         except Exception as e:
-            self.logger.error("Error calculating LVN", error=str(e))
+            self.logger.error("Error calculating enhanced LVN", error=str(e))
             return {
                 'lvn_nearest_price': 0.0,
                 'lvn_nearest_strength': 0.0,
                 'lvn_distance_points': 0.0
             }
     
-    def _calculate_mmd(self, bar_data: BarData) -> Dict[str, Any]:
+    def _calculate_lvn_strength_score(self, lvn_price: float, base_strength: float, current_price: float) -> float:
         """
-        Calculate MMD features using the MMD engine on standard bar data
+        Calculate LVN strength score based on historical price action
+        
+        Args:
+            lvn_price: The identified LVN price level
+            base_strength: The base strength from volume profile
+            current_price: Current market price
+            
+        Returns:
+            Enhanced strength score (0-1)
+        """
+        if lvn_price == 0.0:
+            return 0.0
+        
+        # Initialize interaction tracking for new LVN levels
+        if lvn_price not in self.lvn_interaction_history:
+            self.lvn_interaction_history[lvn_price] = []
+        
+        # Check if price is testing the LVN level (within 0.25% range)
+        test_threshold = lvn_price * 0.0025
+        is_testing = abs(current_price - lvn_price) <= test_threshold
+        
+        if is_testing:
+            # Record the interaction
+            interaction = {
+                'timestamp': datetime.now(),
+                'test_price': current_price,
+                'approached_from': 'above' if current_price > lvn_price else 'below',
+                'volume': self.history_30m[-1].volume if self.history_30m else 0
+            }
+            self.lvn_interaction_history[lvn_price].append(interaction)
+        
+        # Calculate strength factors
+        interactions = self.lvn_interaction_history[lvn_price]
+        
+        # Factor 1: Number of tests (more tests = stronger level)
+        test_count_factor = min(len(interactions) / 10.0, 1.0)  # Normalize to 0-1
+        
+        # Factor 2: Rejection strength (look at price movement after test)
+        rejection_factor = 0.0
+        if len(interactions) >= 2:
+            strong_rejections = 0
+            for i in range(len(interactions) - 1):
+                # Check if price moved away significantly after test
+                time_diff = (interactions[i+1]['timestamp'] - interactions[i]['timestamp']).total_seconds()
+                if time_diff < 7200:  # Within 2 hours
+                    price_diff = abs(interactions[i+1]['test_price'] - lvn_price)
+                    if price_diff > test_threshold * 2:
+                        strong_rejections += 1
+            rejection_factor = min(strong_rejections / 5.0, 1.0)
+        
+        # Factor 3: Recency (recent interactions are more relevant)
+        recency_factor = 0.0
+        if interactions:
+            latest_interaction = interactions[-1]
+            hours_since = (datetime.now() - latest_interaction['timestamp']).total_seconds() / 3600
+            recency_factor = max(0, 1 - (hours_since / 168))  # Decay over 1 week
+        
+        # Combine factors with weights
+        enhanced_strength = (
+            base_strength * 0.4 +
+            test_count_factor * 0.3 +
+            rejection_factor * 0.2 +
+            recency_factor * 0.1
+        )
+        
+        # Clean up old interactions (older than 7 days)
+        cutoff_time = datetime.now().timestamp() - (7 * 24 * 3600)
+        self.lvn_interaction_history[lvn_price] = [
+            i for i in interactions 
+            if i['timestamp'].timestamp() > cutoff_time
+        ]
+        
+        return min(enhanced_strength, 1.0)
+    
+    def _calculate_enhanced_mmd(self, bar_data: BarData) -> Dict[str, Any]:
+        """
+        Calculate MMD features with 7 reference distributions
         
         Args:
             bar_data: Current standard OHLCV bar
             
         Returns:
-            Dictionary of MMD features
+            Dictionary with enhanced MMD feature vector
         """
         try:
-            # Use the MMD engine with original bar data for proper analysis
+            # Get base MMD features from the MMD engine
             mmd_result = self.mmd.calculate_30m(bar_data)
+            base_features = mmd_result.get('mmd_features', np.zeros(13))
             
-            return {
-                'mmd_features': mmd_result.get('mmd_features', np.array([]))
-            }
+            # Extract the current window data for MMD calculation
+            if len(self.history_30m) < 100:
+                return {'mmd_features': base_features}
+            
+            # Prepare current window data
+            df = pd.DataFrame([{
+                'close': b.close, 'high': b.high, 'low': b.low, 'volume': b.volume
+            } for b in list(self.history_30m)[-100:]])
+            
+            # Calculate features
+            df['returns'] = df['close'].pct_change()
+            df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
+            df['range'] = (df['high'] - df['low']) / df['close'].shift(1)
+            df['volatility'] = df['returns'].rolling(20).std() * np.sqrt(252 * 48)
+            df = df.dropna()
+            
+            current_data = df[['returns', 'log_returns', 'range', 'volatility']].values
+            
+            # Normalize current data
+            mean = np.mean(current_data, axis=0)
+            std = np.std(current_data, axis=0)
+            std[std < 1e-8] = 1e-8
+            current_normalized = (current_data - mean) / std
+            
+            # Calculate MMD scores against 7 reference distributions
+            mmd_scores = []
+            for ref_dist in self.mmd_reference_distributions:
+                # Normalize reference distribution
+                ref_normalized = (ref_dist - mean) / std
+                
+                # Use the MMD compute function from the mmd module
+                from .mmd import compute_mmd
+                sigma = 1.0  # Use standard sigma
+                mmd_score = compute_mmd(current_normalized, ref_normalized, sigma)
+                mmd_scores.append(mmd_score)
+            
+            # Create enhanced feature vector
+            # First 7 elements: MMD scores against reference distributions
+            # Next 6 elements: Statistical features from base_features
+            enhanced_features = np.zeros(13)
+            enhanced_features[:7] = mmd_scores
+            enhanced_features[7:] = base_features[7:]  # Keep statistical features
+            
+            return {'mmd_features': enhanced_features}
             
         except Exception as e:
-            self.logger.error("Error calculating MMD", error=str(e))
-            return {'mmd_features': np.array([])}
+            self.logger.error("Error calculating enhanced MMD", error=str(e))
+            return {'mmd_features': np.zeros(13)}
     
     def _update_fvg_tracking(self, bars: List[BarData]) -> None:
         """Update FVG tracking list with new detections and mitigations"""
@@ -673,6 +910,24 @@ class IndicatorEngine(ComponentBase):
             self.logger.error("Error finding nearest FVG", error=str(e))
             return {'level': 0.0, 'age': 0}
     
+    def _calculate_interaction_features(self) -> None:
+        """Calculate interaction features between indicators"""
+        try:
+            # MLMI minus NWRQK
+            mlmi_value = self.feature_store.get('mlmi_value', 0.0)
+            nwrqk_value = self.feature_store.get('nwrqk_value', 0.0)
+            
+            self.feature_store['mlmi_minus_nwrqk'] = mlmi_value - nwrqk_value
+            
+            # MLMI divided by NWRQK (with zero protection)
+            if abs(nwrqk_value) > 1e-8:
+                self.feature_store['mlmi_div_nwrqk'] = mlmi_value / nwrqk_value
+            else:
+                self.feature_store['mlmi_div_nwrqk'] = 1.0 if mlmi_value > 0 else -1.0 if mlmi_value < 0 else 0.0
+            
+        except Exception as e:
+            self.logger.error("Error calculating interaction features", error=str(e))
+    
     async def _update_feature_store_5min(self, features: Dict[str, Any], timestamp: datetime) -> None:
         """
         Update Feature Store with 5-minute features atomically
@@ -711,6 +966,9 @@ class IndicatorEngine(ComponentBase):
                 for key, value in features.items():
                     self.feature_store[key] = value
                 
+                # Calculate interaction features after updating base features
+                self._calculate_interaction_features()
+                
                 # Update metadata
                 self.feature_store['last_update_30min'] = timestamp
                 self.last_update_30min = timestamp
@@ -739,12 +997,7 @@ class IndicatorEngine(ComponentBase):
         """Emit INDICATORS_READY event with complete Feature Store"""
         try:
             # Create deep copy of Feature Store for event payload
-            feature_store_copy = {}
-            for key, value in self.feature_store.items():
-                if isinstance(value, np.ndarray):
-                    feature_store_copy[key] = value.copy()
-                else:
-                    feature_store_copy[key] = value
+            feature_store_copy = copy.deepcopy(self.feature_store)
             
             # Add metadata
             feature_store_copy['feature_count'] = len([k for k in feature_store_copy.keys() 
@@ -772,7 +1025,7 @@ class IndicatorEngine(ComponentBase):
         Returns:
             Copy of current Feature Store
         """
-        return self.feature_store.copy()
+        return copy.deepcopy(self.feature_store)
     
     def get_feature_summary(self) -> Dict[str, Any]:
         """
