@@ -21,7 +21,7 @@ from typing import Dict, List, Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.core.kernel import SystemKernel
+from src.core.kernel import AlgoSpaceKernel
 from src.core.events import EventType, Event
 from src.data.handlers import create_data_handler
 from src.data.bar_generator import BarGenerator
@@ -120,7 +120,7 @@ class TestMatrixIntegration(unittest.TestCase):
     
     def setUp(self):
         """Set up for each test."""
-        self.kernel = SystemKernel()
+        self.kernel = AlgoSpaceKernel()
         self.monitor = MatrixIntegrationMonitor()
         
         # Components will be created in individual tests

@@ -1,0 +1,457 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0
+rootdir: /home/QuantNova/AlgoSpace
+configfile: pyproject.toml
+plugins: asyncio-1.0.0, mock-3.14.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 82 items
+
+tests/agents/test_main_marl_core.py F.......                             [  9%]
+tests/agents/test_mrms_engine.py .........                               [ 20%]
+tests/agents/test_mrms_integration.py .....                              [ 26%]
+tests/agents/test_mrms_structure.py .......                              [ 35%]
+tests/agents/test_rde_engine.py .............                            [ 51%]
+tests/agents/test_rde_engine_structure.py ......                         [ 58%]
+tests/assemblers/test_matrix_assembler.py ............F..FFF             [ 80%]
+tests/core/test_kernel.py F.F.                                           [ 85%]
+tests/detectors/test_synergy_detector.py ............                    [100%]
+
+=================================== FAILURES ===================================
+__ TestMainMARLCoreComponent.test_component_initialization_and_model_loading ___
+
+self = <test_main_marl_core.TestMainMARLCoreComponent object at 0x7e11442458b0>
+mock_config = {'decision_gate': {'dropout': 0.1, 'hidden_dim': 64}, 'device': 'cpu', 'embedders': {'lvn': {'hidden_dim': 16, 'input_...'dropout': 0.2, 'hidden_dim': 64, 'output_dim': 48}}, 'mc_dropout': {'confidence_threshold': 0.8, 'n_passes': 10}, ...}
+mock_components = {'kernel': <Mock id='138613152090736'>, 'm_rms': <Mock id='138612624616160'>, 'matrix_30m': <Mock id='138613143355120'>, 'matrix_5m': <Mock id='138612632172448'>, ...}
+
+    def test_component_initialization_and_model_loading(self, mock_config, mock_components):
+        """Test that the MainMARLCoreComponent initializes all its sub-models correctly."""
+        component = MainMARLCoreComponent(mock_config, mock_components)
+    
+        # Assert all embedders are created with correct types
+        assert isinstance(component.structure_embedder, StructureEmbedder)
+        assert isinstance(component.tactical_embedder, TacticalEmbedder)
+        assert isinstance(component.regime_embedder, RegimeEmbedder)
+        assert isinstance(component.lvn_embedder, LVNEmbedder)
+    
+        # Assert SharedPolicy is created
+        assert isinstance(component.shared_policy, SharedPolicy)
+    
+        # Assert DecisionGate is created
+        assert isinstance(component.decision_gate, DecisionGate)
+    
+        # Assert MC Dropout evaluator is created
+        assert isinstance(component.mc_evaluator, MCDropoutEvaluator)
+        assert component.mc_evaluator.n_passes == 10
+        assert component.confidence_threshold == 0.8
+    
+        # Verify dimensions match configuration
+        assert component.structure_embedder.output_dim == 64
+        assert component.tactical_embedder.output_dim == 48
+>       assert component.regime_embedder.mlp[-2].out_features == 16
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agents/test_main_marl_core.py:156: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = LayerNorm((16,), eps=1e-05, elementwise_affine=True)
+name = 'out_features'
+
+    def __getattr__(self, name: str) -> Union[Tensor, "Module"]:
+        if "_parameters" in self.__dict__:
+            _parameters = self.__dict__["_parameters"]
+            if name in _parameters:
+                return _parameters[name]
+        if "_buffers" in self.__dict__:
+            _buffers = self.__dict__["_buffers"]
+            if name in _buffers:
+                return _buffers[name]
+        if "_modules" in self.__dict__:
+            modules = self.__dict__["_modules"]
+            if name in modules:
+                return modules[name]
+>       raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'"
+        )
+E       AttributeError: 'LayerNorm' object has no attribute 'out_features'
+
+venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1940: AttributeError
+___________ TestMatrixAssembler5m.test_5m_custom_feature_calculation ___________
+
+self = <test_matrix_assembler.TestMatrixAssembler5m object at 0x7e11442a9430>
+mock_kernel = <Mock id='138612620878928'>
+
+    def test_5m_custom_feature_calculation(self, mock_kernel):
+        """Test 5m custom feature calculations"""
+        config = {
+            'name': 'Test5m',
+            'window_size': 60,
+            'features': ['price_momentum_5', 'volume_ratio'],
+            'kernel': mock_kernel
+        }
+    
+        assembler = MatrixAssembler5m(config)
+    
+        # Populate price history
+        for price in [14900, 14920, 14940, 14960, 14980, 15000]:
+            assembler.price_history.append(price)
+    
+        # Set volume EMA
+        assembler.volume_ema = 1000.0
+    
+        feature_store = {
+            'current_price': 15000.0,
+            'current_volume': 1500.0
+        }
+    
+        features = assembler.extract_features(feature_store)
+    
+        assert features is not None
+        assert len(features) == 2
+    
+        # Check momentum calculation
+        momentum = features[0]
+        expected_momentum = ((15000 - 14900) / 14900) * 100
+>       assert abs(momentum - expected_momentum) < 0.01
+E       assert np.float64(0.13494791010669882) < 0.01
+E        +  where np.float64(0.13494791010669882) = abs((np.float64(0.5361930294906166) - 0.6711409395973155))
+
+tests/assemblers/test_matrix_assembler.py:350: AssertionError
+----------------------------- Captured stderr call -----------------------------
+{"event": "Initialized Test5m with window_size=60, n_features=2, features=['price_momentum_5', 'volume_ratio']", "logger": "Test5m", "level": "info", "timestamp": "2025-06-30T22:02:51.950265Z"}
+{"event": "MatrixAssembler5m initialized for short-term tactical analysis with 2 features and window_size=60", "logger": "Test5m", "level": "info", "timestamp": "2025-06-30T22:02:51.951199Z"}
+------------------------------ Captured log call -------------------------------
+INFO     Test5m:base.py:106 {"event": "Initialized Test5m with window_size=60, n_features=2, features=['price_momentum_5', 'volume_ratio']", "logger": "Test5m", "level": "info", "timestamp": "2025-06-30T22:02:51.950265Z"}
+INFO     Test5m:assembler_5m.py:57 {"event": "MatrixAssembler5m initialized for short-term tactical analysis with 2 features and window_size=60", "logger": "Test5m", "level": "info", "timestamp": "2025-06-30T22:02:51.951199Z"}
+______________ TestIntegration.test_kernel_assembler_integration _______________
+
+self = <test_matrix_assembler.TestIntegration object at 0x7e11442aa0c0>
+mock_kernel = <Mock id='138612620880416'>
+
+    def test_kernel_assembler_integration(self, mock_kernel):
+        """Test that kernel properly instantiates assemblers with config"""
+        from src.core.kernel import AlgoSpaceKernel
+    
+        # Create a more complete mock kernel
+        kernel = AlgoSpaceKernel()
+        kernel.config = {
+            'matrix_assemblers': {
+                'assembler_30m': {
+                    'window_size': 48,
+                    'features': ['mlmi_value', 'nwrqk_value']
+                },
+                'assembler_5m': {
+                    'window_size': 60,
+                    'features': ['fvg_bullish_active', 'price_momentum_5']
+                },
+                'assembler_regime': {
+                    'window_size': 96,
+                    'features': ['mmd_features', 'volatility_30']
+                }
+            }
+        }
+    
+        # Mock the assembler classes
+        with patch('src.core.kernel.MatrixAssembler30m') as Mock30m, \
+             patch('src.core.kernel.MatrixAssembler5m') as Mock5m, \
+             patch('src.core.kernel.MatrixAssemblerRegime') as MockRegime:
+    
+            # Call the instantiation method
+>           kernel._instantiate_components()
+
+tests/assemblers/test_matrix_assembler.py:452: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <src.core.kernel.AlgoSpaceKernel object at 0x7e1144076150>
+
+    def _instantiate_components(self) -> None:
+        """Instantiates all system components based on configuration."""
+        # Data Pipeline
+>       mode = self.config['data']['mode']
+               ^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'data'
+
+src/core/kernel.py:141: KeyError
+----------------------------- Captured stderr call -----------------------------
+EventBus initialized
+AlgoSpace Kernel initialized with config path: config/settings.yaml
+------------------------------ Captured log call -------------------------------
+INFO     src.core.event_bus:event_bus.py:23 EventBus initialized
+INFO     src.core.kernel:kernel.py:91 AlgoSpace Kernel initialized with config path: config/settings.yaml
+____________ TestIntegration.test_event_flow_with_missing_features _____________
+
+self = <test_matrix_assembler.TestIntegration object at 0x7e11442aa2a0>
+mock_kernel = <Mock id='138612623678912'>
+
+    def test_event_flow_with_missing_features(self, mock_kernel):
+        """Test event flow handles missing features gracefully"""
+        config = {
+            'name': 'TestAssembler',
+            'window_size': 10,
+            'features': ['feature_1', 'feature_2', 'feature_3'],
+            'kernel': mock_kernel
+        }
+    
+        assembler = ConcreteMatrixAssembler(config)
+    
+        # Create event with incomplete feature store
+>       event = Event(
+            type=EventType.INDICATORS_READY,
+            payload={
+                'feature_1': 1.0,
+                # feature_2 missing
+                'feature_3': 3.0,
+                'emission_timestamp': datetime.now()
+            }
+        )
+E       TypeError: Event.__init__() got an unexpected keyword argument 'type'
+
+tests/assemblers/test_matrix_assembler.py:483: TypeError
+----------------------------- Captured stderr call -----------------------------
+{"event": "Initialized TestAssembler with window_size=10, n_features=3, features=['feature_1', 'feature_2', 'feature_3']", "logger": "TestAssembler", "level": "info", "timestamp": "2025-06-30T22:02:52.013357Z"}
+------------------------------ Captured log call -------------------------------
+INFO     TestAssembler:base.py:106 {"event": "Initialized TestAssembler with window_size=10, n_features=3, features=['feature_1', 'feature_2', 'feature_3']", "logger": "TestAssembler", "level": "info", "timestamp": "2025-06-30T22:02:52.013357Z"}
+____________ TestIntegration.test_performance_with_missing_features ____________
+
+self = <test_matrix_assembler.TestIntegration object at 0x7e11442aa4b0>
+basic_config = {'features': ['feature_1', 'feature_2', 'feature_3'], 'kernel': <Mock id='138612623672912'>, 'name': 'TestAssembler', 'warmup_period': 5, ...}
+
+    def test_performance_with_missing_features(self, basic_config):
+        """Test that missing features don't significantly impact performance"""
+        assembler = ConcreteMatrixAssembler(basic_config)
+    
+        # Time with complete features
+        complete_store = {f'feature_{i}': float(i) for i in range(1, 4)}
+    
+        import time
+        start = time.time()
+        for _ in range(1000):
+            assembler._extract_features_safely(complete_store)
+        complete_time = time.time() - start
+    
+        # Time with missing features
+        incomplete_store = {'feature_1': 1.0, 'feature_3': 3.0}
+    
+        start = time.time()
+        for _ in range(1000):
+            assembler._extract_features_safely(incomplete_store)
+        incomplete_time = time.time() - start
+    
+        # Should not be significantly slower (less than 2x)
+>       assert incomplete_time < complete_time * 2
+E       assert 0.001664876937866211 < (0.0005102157592773438 * 2)
+
+tests/assemblers/test_matrix_assembler.py:522: AssertionError
+----------------------------- Captured stderr call -----------------------------
+{"event": "Initialized TestAssembler with window_size=10, n_features=3, features=['feature_1', 'feature_2', 'feature_3']", "logger": "TestAssembler", "level": "info", "timestamp": "2025-06-30T22:02:52.021265Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #1)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.021920Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #2)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022015Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #3)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022090Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #4)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022156Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #5)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022215Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #100)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022335Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #200)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022457Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #300)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022586Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #400)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022721Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #500)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022854Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #600)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022998Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #700)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023129Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #800)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023257Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #900)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023387Z"}
+{"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #1000)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023519Z"}
+------------------------------ Captured log call -------------------------------
+INFO     TestAssembler:base.py:106 {"event": "Initialized TestAssembler with window_size=10, n_features=3, features=['feature_1', 'feature_2', 'feature_3']", "logger": "TestAssembler", "level": "info", "timestamp": "2025-06-30T22:02:52.021265Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #1)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.021920Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #2)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022015Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #3)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022090Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #4)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022156Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #5)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022215Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #100)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022335Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #200)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022457Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #300)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022586Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #400)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022721Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #500)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022854Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #600)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.022998Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #700)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023129Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #800)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023257Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #900)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023387Z"}
+WARNING  TestAssembler:base.py:251 {"event": "Feature 'feature_2' not found in Feature Store. Using default value 0.0. (Occurrence #1000)", "logger": "TestAssembler", "level": "warning", "timestamp": "2025-06-30T22:02:52.023519Z"}
+_________________ test_kernel_initialization_in_backtest_mode __________________
+
+mock_config_file = '/tmp/pytest-of-QuantNova/pytest-2/test_kernel_initialization_in_0/settings.yaml'
+mock_components = {'BacktestDataHandler': <Mock id='138612623679488'>, 'BacktestExecutionHandler': <Mock id='138612623686784'>, 'BarGenerator': <Mock id='138612623686496'>, 'IndicatorEngine': <Mock id='138612623681216'>, ...}
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7e114408ff20>
+
+    def test_kernel_initialization_in_backtest_mode(mock_config_file, mock_components, caplog):
+        """Test that the kernel can be initialized successfully in backtest mode."""
+        # Setup (Arrange)
+        # Patch all external component imports
+>       with patch('src.core.kernel.BacktestDataHandler', mock_components['BacktestDataHandler']), \
+             patch('src.core.kernel.LiveDataHandler', mock_components['LiveDataHandler']), \
+             patch('src.core.kernel.BarGenerator', mock_components['BarGenerator']), \
+             patch('src.core.kernel.IndicatorEngine', mock_components['IndicatorEngine']), \
+             patch('src.core.kernel.MatrixAssembler30m', mock_components['MatrixAssembler30m']), \
+             patch('src.core.kernel.MatrixAssembler5m', mock_components['MatrixAssembler5m']), \
+             patch('src.core.kernel.MatrixAssemblerRegime', mock_components['MatrixAssemblerRegime']), \
+             patch('src.core.kernel.RegimeDetectionEngine', mock_components['RegimeDetectionEngine']), \
+             patch('src.core.kernel.RiskManagementSubsystem', mock_components['RiskManagementSubsystem']), \
+             patch('src.core.kernel.MainMARLCore', mock_components['MainMARLCore']), \
+             patch('src.core.kernel.SynergyDetector', mock_components['SynergyDetector']), \
+             patch('src.core.kernel.BacktestExecutionHandler', mock_components['BacktestExecutionHandler']), \
+             patch('src.core.kernel.LiveExecutionHandler', mock_components['LiveExecutionHandler']):
+
+tests/core/test_kernel.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/unittest/mock.py:1458: in __enter__
+    original, local = self.get_original()
+                      ^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <unittest.mock._patch object at 0x7e114408f5f0>
+
+    def get_original(self):
+        target = self.getter()
+        name = self.attribute
+    
+        original = DEFAULT
+        local = False
+    
+        try:
+            original = target.__dict__[name]
+        except (AttributeError, KeyError):
+            original = getattr(target, name, DEFAULT)
+        else:
+            local = True
+    
+        if name in _builtins and isinstance(target, ModuleType):
+            self.create = True
+    
+        if not self.create and original is DEFAULT:
+>           raise AttributeError(
+                "%s does not have the attribute %r" % (target, name)
+            )
+E           AttributeError: <module 'src.core.kernel' from '/home/QuantNova/AlgoSpace/src/core/kernel.py'> does not have the attribute 'RegimeDetectionEngine'
+
+/usr/lib/python3.12/unittest/mock.py:1431: AttributeError
+__________________________ test_kernel_get_component ___________________________
+
+    def test_kernel_get_component():
+        """Test the get_component method."""
+        with patch('src.core.kernel.BacktestDataHandler', Mock(return_value=Mock())):
+            # Create a minimal config
+            config_data = {
+                'data': {'mode': 'backtest', 'contracts': {}},
+                'execution': {'mode': 'backtest'},
+                'risk': {},
+                'agents': {},
+                'models': {}
+            }
+    
+            with patch('src.core.config.load_config', return_value=config_data):
+                kernel = AlgoSpaceKernel()
+    
+                # Create logs directory
+                Path('logs').mkdir(exist_ok=True)
+    
+                # Test before initialization
+                assert kernel.get_component('data_handler') is None
+    
+                # Initialize (with minimal components)
+>               kernel.initialize()
+
+tests/core/test_kernel.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/core/kernel.py:116: in initialize
+    self.config = load_config(self.config_path)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = 'config/settings.yaml'
+
+    def load_config(path: str = 'config/settings.yaml') -> Dict[str, Any]:
+        """
+        Loads the YAML configuration file and injects credentials from environment variables.
+    
+        Args:
+            path: The path to the settings.yaml file.
+    
+        Returns:
+            The complete configuration dictionary.
+    
+        Raises:
+            FileNotFoundError: If the config file is not found.
+            ConfigurationError: If essential configuration is missing or invalid.
+        """
+        config_path = Path(path)
+        logger.info(f"Loading configuration from: {config_path.absolute()}")
+    
+        if not config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found at {config_path.absolute()}")
+    
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ConfigurationError(f"Failed to parse YAML configuration: {e}")
+    
+        # Validate basic structure
+        required_sections = ['data', 'execution', 'risk', 'agents', 'models']
+        missing_sections = [s for s in required_sections if s not in config]
+        if missing_sections:
+>           raise ConfigurationError(f"Missing required configuration sections: {missing_sections}")
+E           src.core.config.ConfigurationError: Missing required configuration sections: ['data', 'risk']
+
+src/core/config.py:49: ConfigurationError
+----------------------------- Captured stderr call -----------------------------
+EventBus initialized
+AlgoSpace Kernel initialized with config path: config/settings.yaml
+=== AlgoSpace System Initialization Starting ===
+Loading configuration from: /home/QuantNova/AlgoSpace/config/settings.yaml
+Kernel initialization failed: Missing required configuration sections: ['data', 'risk']
+Traceback (most recent call last):
+  File "/home/QuantNova/AlgoSpace/src/core/kernel.py", line 116, in initialize
+    self.config = load_config(self.config_path)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/QuantNova/AlgoSpace/src/core/config.py", line 49, in load_config
+    raise ConfigurationError(f"Missing required configuration sections: {missing_sections}")
+src.core.config.ConfigurationError: Missing required configuration sections: ['data', 'risk']
+------------------------------ Captured log call -------------------------------
+INFO     src.core.event_bus:event_bus.py:23 EventBus initialized
+INFO     src.core.kernel:kernel.py:91 AlgoSpace Kernel initialized with config path: config/settings.yaml
+INFO     src.core.kernel:kernel.py:113 === AlgoSpace System Initialization Starting ===
+INFO     src.core.config:config.py:34 Loading configuration from: /home/QuantNova/AlgoSpace/config/settings.yaml
+ERROR    src.core.kernel:kernel.py:134 Kernel initialization failed: Missing required configuration sections: ['data', 'risk']
+Traceback (most recent call last):
+  File "/home/QuantNova/AlgoSpace/src/core/kernel.py", line 116, in initialize
+    self.config = load_config(self.config_path)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/QuantNova/AlgoSpace/src/core/config.py", line 49, in load_config
+    raise ConfigurationError(f"Missing required configuration sections: {missing_sections}")
+src.core.config.ConfigurationError: Missing required configuration sections: ['data', 'risk']
+=============================== warnings summary ===============================
+tests/agents/test_mrms_structure.py::test_init_py_exports
+tests/agents/test_mrms_structure.py::test_init_py_exports
+  /home/QuantNova/AlgoSpace/tests/agents/test_mrms_structure.py:120: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    exports = [elt.s for elt in node.value.elts if isinstance(elt, ast.Str)]
+
+tests/agents/test_mrms_structure.py::test_init_py_exports
+  /home/QuantNova/AlgoSpace/tests/agents/test_mrms_structure.py:120: DeprecationWarning: Attribute s is deprecated and will be removed in Python 3.14; use value instead
+    exports = [elt.s for elt in node.value.elts if isinstance(elt, ast.Str)]
+
+tests/agents/test_rde_engine_structure.py::test_init_py_exports
+  /home/QuantNova/AlgoSpace/tests/agents/test_rde_engine_structure.py:120: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    exports = [elt.s for elt in node.value.elts if isinstance(elt, ast.Str)]
+
+tests/agents/test_rde_engine_structure.py::test_init_py_exports
+  /home/QuantNova/AlgoSpace/tests/agents/test_rde_engine_structure.py:120: DeprecationWarning: Attribute s is deprecated and will be removed in Python 3.14; use value instead
+    exports = [elt.s for elt in node.value.elts if isinstance(elt, ast.Str)]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agents/test_main_marl_core.py::TestMainMARLCoreComponent::test_component_initialization_and_model_loading
+FAILED tests/assemblers/test_matrix_assembler.py::TestMatrixAssembler5m::test_5m_custom_feature_calculation
+FAILED tests/assemblers/test_matrix_assembler.py::TestIntegration::test_kernel_assembler_integration
+FAILED tests/assemblers/test_matrix_assembler.py::TestIntegration::test_event_flow_with_missing_features
+FAILED tests/assemblers/test_matrix_assembler.py::TestIntegration::test_performance_with_missing_features
+FAILED tests/core/test_kernel.py::test_kernel_initialization_in_backtest_mode
+FAILED tests/core/test_kernel.py::test_kernel_get_component - src.core.config...
+=================== 7 failed, 75 passed, 5 warnings in 8.12s ===================

@@ -82,11 +82,11 @@ INDICATORS_READY Event
 ## Usage Example
 
 ```python
-from src.core.kernel import SystemKernel
+from src.core.kernel import AlgoSpaceKernel
 from src.matrix import MatrixAssembler30m, MatrixAssembler5m, MatrixAssemblerRegime
 
 # Initialize system
-kernel = SystemKernel()
+kernel = AlgoSpaceKernel()
 
 # Create assemblers
 assembler_30m = MatrixAssembler30m("Structure", kernel)

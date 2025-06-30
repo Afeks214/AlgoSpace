@@ -26,7 +26,7 @@ import json
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.core.kernel import SystemKernel
+from src.core.kernel import AlgoSpaceKernel
 from src.core.events import EventType, Event
 from src.utils.logger import setup_logging, get_logger
 from src.data.handlers import create_data_handler
@@ -372,7 +372,7 @@ class EndToEndTester:
         self.logger = get_logger("EndToEndTester")
         
         # Create test kernel and monitor
-        self.kernel = SystemKernel(config_path)
+        self.kernel = AlgoSpaceKernel(config_path)
         self.monitor = TestMonitor()
         
         # Test configuration

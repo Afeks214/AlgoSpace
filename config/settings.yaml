@@ -171,6 +171,54 @@ rde:
   device: cpu     # CPU for production stability
   sequence_length: 24  # Expected sequence length (12 hours)
 
+# M-RMS (Multi-Agent Risk Management Subsystem) configuration
+m_rms:
+  synergy_dim: 30         # Synergy feature vector dimension
+  account_dim: 10         # Account state vector dimension  
+  device: cpu             # CPU for production stability
+  point_value: 5.0        # MES point value
+  max_position_size: 5    # Maximum contracts per trade
+  hidden_dim: 128         # Value head hidden dimension
+  position_agent_hidden: 128
+  sl_agent_hidden: 64
+  pt_agent_hidden: 64
+  dropout_rate: 0.2
+
+# Main MARL Core configuration
+main_core:
+  device: cpu  # CPU for production stability
+  embedders:
+    structure:
+      output_dim: 64
+      dropout: 0.2
+    tactical:
+      hidden_dim: 64
+      output_dim: 48
+      dropout: 0.2
+    regime:
+      output_dim: 16
+      hidden_dim: 32
+    lvn:
+      input_dim: 5
+      output_dim: 8
+      hidden_dim: 16
+  shared_policy:
+    hidden_dims: [256, 128, 64]
+    dropout: 0.2
+  mc_dropout:
+    n_passes: 50
+    confidence_threshold: 0.65
+  decision_gate:
+    hidden_dim: 64
+    dropout: 0.1
+  model_paths:
+    structure_embedder: "./models/structure_embedder.pth"
+    tactical_embedder: "./models/tactical_embedder.pth"
+    regime_embedder: "./models/regime_embedder.pth"
+    lvn_embedder: "./models/lvn_embedder.pth"
+    shared_policy: "./models/shared_policy.pth"
+    decision_gate: "./models/decision_gate.pth"
+
 # Model paths
 models:
   rde_path: "./models/hybrid_regime_engine.pth"

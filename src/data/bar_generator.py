@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
 import structlog
 
-from ..core.kernel import ComponentBase, SystemKernel
+from ..core.kernel import ComponentBase, AlgoSpaceKernel
 from ..core.events import EventType, Event, TickData, BarData
 from ..utils.logger import get_logger
 from .validators import BarValidator
@@ -33,7 +33,7 @@ class BarGenerator(ComponentBase):
     - Deterministic output for backtesting consistency
     """
     
-    def __init__(self, name: str, kernel: SystemKernel):
+    def __init__(self, name: str, kernel: AlgoSpaceKernel):
         """
         Initialize BarGenerator
         

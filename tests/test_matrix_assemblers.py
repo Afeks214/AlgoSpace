@@ -22,7 +22,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.core.kernel import SystemKernel
+from src.core.kernel import AlgoSpaceKernel
 from src.core.events import EventBus, EventType, Event
 from src.matrix import MatrixAssembler30m, MatrixAssembler5m, MatrixAssemblerRegime
 from src.matrix.normalizers import (
@@ -140,7 +140,7 @@ class TestBaseMatrixAssembler(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment."""
-        self.kernel = SystemKernel()
+        self.kernel = AlgoSpaceKernel()
         self.event_bus = self.kernel.get_event_bus()
     
     def test_circular_buffer(self):
@@ -248,7 +248,7 @@ class TestMatrixAssembler30m(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment."""
-        self.kernel = SystemKernel()
+        self.kernel = AlgoSpaceKernel()
         self.assembler = MatrixAssembler30m("Test30m", self.kernel)
     
     def test_feature_extraction(self):
@@ -331,7 +331,7 @@ class TestMatrixAssembler5m(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment."""
-        self.kernel = SystemKernel()
+        self.kernel = AlgoSpaceKernel()
         self.assembler = MatrixAssembler5m("Test5m", self.kernel)
         self.assembler.current_price = 100.0
     
@@ -408,7 +408,7 @@ class TestMatrixAssemblerRegime(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment."""
-        self.kernel = SystemKernel()
+        self.kernel = AlgoSpaceKernel()
         self.assembler = MatrixAssemblerRegime("TestRegime", self.kernel)
     
     def test_dynamic_mmd_dimension(self):
@@ -480,7 +480,7 @@ class TestIntegration(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment."""
-        self.kernel = SystemKernel()
+        self.kernel = AlgoSpaceKernel()
         self.event_bus = self.kernel.get_event_bus()
         
         # Create all assemblers

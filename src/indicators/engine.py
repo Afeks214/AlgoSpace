@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import copy
 
-from ..core.kernel import ComponentBase, SystemKernel
+from ..core.kernel import ComponentBase, AlgoSpaceKernel
 from ..core.events import EventType, Event, BarData
 from ..data.validators import BarValidator
 
@@ -47,7 +47,7 @@ class IndicatorEngine(ComponentBase):
     - Interaction features between indicators
     """
     
-    def __init__(self, name: str, kernel: SystemKernel):
+    def __init__(self, name: str, kernel: AlgoSpaceKernel):
         """
         Initialize IndicatorEngine
         

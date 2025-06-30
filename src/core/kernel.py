@@ -39,14 +39,14 @@ except ImportError:
     RDEComponent = None
 
 try:
-    from ..agents.risk_manager import RiskManagementSubsystem
+    from ..agents.mrms import MRMSComponent
 except ImportError:
-    RiskManagementSubsystem = None
+    MRMSComponent = None
 
 try:
-    from ..agents.marl_core import MainMARLCore
+    from ..agents.main_core import MainMARLCoreComponent
 except ImportError:
-    MainMARLCore = None
+    MainMARLCoreComponent = None
 
 try:
     from ..agents.synergy.detector import SynergyDetector
@@ -138,16 +138,16 @@ class AlgoSpaceKernel:
     def _instantiate_components(self) -> None:
         """Instantiates all system components based on configuration."""
         # Data Pipeline
-        mode = self.config['data']['mode']
-        logger.info(f"Instantiating components for mode: {mode}")
+        data_type = self.config['data_handler']['type']
+        logger.info(f"Instantiating components for data handler type: {data_type}")
         
-        if mode == 'live':
+        if data_type in ['rithmic', 'ib']:
             if LiveDataHandler:
                 self.components['data_handler'] = LiveDataHandler(self.config, self.event_bus)
                 logger.info("LiveDataHandler instantiated")
             else:
                 logger.warning("LiveDataHandler not available")
-        else:
+        else:  # backtest
             if BacktestDataHandler:
                 self.components['data_handler'] = BacktestDataHandler(self.config, self.event_bus)
                 logger.info("BacktestDataHandler instantiated")
@@ -170,7 +170,7 @@ class AlgoSpaceKernel:
         
         if MatrixAssembler30m:
             # Prepare configuration for 30m assembler
-            config_30m = matrix_config.get('assembler_30m', {
+            config_30m = matrix_config.get('30m', {
                 'window_size': 48,
                 'features': [
                     'mlmi_value', 'mlmi_signal', 'nwrqk_value', 'nwrqk_slope',
@@ -186,7 +186,7 @@ class AlgoSpaceKernel:
             
         if MatrixAssembler5m:
             # Prepare configuration for 5m assembler
-            config_5m = matrix_config.get('assembler_5m', {
+            config_5m = matrix_config.get('5m', {
                 'window_size': 60,
                 'features': [
                     'fvg_bullish_active', 'fvg_bearish_active',
@@ -202,7 +202,7 @@ class AlgoSpaceKernel:
             
         if MatrixAssemblerRegime:
             # Prepare configuration for regime assembler
-            config_regime = matrix_config.get('assembler_regime', {
+            config_regime = matrix_config.get('regime', {
                 'window_size': 96,
                 'features': [
                     'mmd_features', 'volatility_30',
@@ -228,22 +228,26 @@ class AlgoSpaceKernel:
             self.components['rde'] = RDEComponent(rde_config)
             logger.info("RDEComponent instantiated")
         
-        if RiskManagementSubsystem:
-            self.components['m_rms'] = RiskManagementSubsystem(self.config)
-            logger.info("RiskManagementSubsystem instantiated")
+        if MRMSComponent:
+            # Get M-RMS specific configuration
+            mrms_config = self.config.get('m_rms', {})
+            self.components['m_rms'] = MRMSComponent(mrms_config)
+            logger.info("MRMSComponent instantiated")
         
         # Main MARL Core
-        if MainMARLCore:
-            self.components['main_marl_core'] = MainMARLCore(self.config, self.components)
-            logger.info("MainMARLCore instantiated")
+        if MainMARLCoreComponent:
+            # Get main core configuration
+            main_core_config = self.config.get('main_core', {})
+            self.components['main_marl_core'] = MainMARLCoreComponent(main_core_config, self.components)
+            logger.info("MainMARLCoreComponent instantiated")
         
-        # Execution Layer
-        exec_mode = self.config.get('execution', {}).get('mode', 'backtest')
-        if exec_mode == 'live':
+        # Execution Layer - determine based on data handler type
+        data_type = self.config['data_handler']['type']
+        if data_type in ['rithmic', 'ib']:
             if LiveExecutionHandler:
                 self.components['execution_handler'] = LiveExecutionHandler(self.config, self.event_bus)
                 logger.info("LiveExecutionHandler instantiated")
-        else:
+        else:  # backtest
             if BacktestExecutionHandler:
                 self.components['execution_handler'] = BacktestExecutionHandler(self.config, self.event_bus)
                 logger.info("BacktestExecutionHandler instantiated")
@@ -426,7 +430,7 @@ class AlgoSpaceKernel:
         """
         return {
             'running': self.running,
-            'mode': self.config.get('data', {}).get('mode', 'unknown'),
+            'mode': self.config.get('data_handler', {}).get('type', 'unknown'),
             'components': list(self.components.keys()),
             'event_queue_size': self.event_bus.event_queue.qsize(),
         }

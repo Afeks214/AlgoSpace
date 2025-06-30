@@ -43,7 +43,7 @@ def load_config(path: str = 'config/settings.yaml') -> Dict[str, Any]:
         raise ConfigurationError(f"Failed to parse YAML configuration: {e}")
 
     # Validate basic structure
-    required_sections = ['data', 'execution', 'risk', 'agents', 'models']
+    required_sections = ['data_handler', 'execution', 'risk_management', 'agents', 'models']
     missing_sections = [s for s in required_sections if s not in config]
     if missing_sections:
         raise ConfigurationError(f"Missing required configuration sections: {missing_sections}")
@@ -69,7 +69,7 @@ def _inject_credentials(config: Dict[str, Any]) -> None:
         ConfigurationError: If required credentials are missing.
     """
     # Rithmic credentials for live trading
-    if config.get('data', {}).get('mode') == 'live':
+    if config.get('data_handler', {}).get('type') == 'rithmic':
         rithmic_creds = {
             'user': os.environ.get('RITHMIC_USER'),
             'password': os.environ.get('RITHMIC_PASSWORD'),
@@ -83,7 +83,7 @@ def _inject_credentials(config: Dict[str, Any]) -> None:
                 f"Missing Rithmic credentials in environment variables: {missing_creds}"
             )
         
-        config['data']['live_settings'] = rithmic_creds
+        config['data_handler']['live_settings'] = rithmic_creds
         logger.info("Rithmic credentials injected from environment variables")
 
     # API keys for any external services
@@ -107,30 +107,22 @@ def _validate_config(config: Dict[str, Any]) -> None:
     Raises:
         ConfigurationError: If validation fails.
     """
-    # Validate data configuration
-    data_config = config.get('data', {})
-    if 'mode' not in data_config:
-        raise ConfigurationError("data.mode is required (live or backtest)")
+    # Validate data_handler configuration
+    data_config = config.get('data_handler', {})
+    if 'type' not in data_config:
+        raise ConfigurationError("data_handler.type is required (rithmic, ib, or backtest)")
     
-    if data_config['mode'] not in ['live', 'backtest']:
-        raise ConfigurationError("data.mode must be 'live' or 'backtest'")
+    if data_config['type'] not in ['rithmic', 'ib', 'backtest']:
+        raise ConfigurationError("data_handler.type must be 'rithmic', 'ib', or 'backtest'")
     
-    # Validate contracts configuration
-    if 'contracts' not in data_config:
-        raise ConfigurationError("data.contracts section is required")
-    
-    contracts = data_config['contracts']
-    required_contract_fields = ['symbol', 'exchange', 'tick_size', 'point_value']
-    for contract_name, contract_info in contracts.items():
-        missing_fields = [f for f in required_contract_fields if f not in contract_info]
-        if missing_fields:
-            raise ConfigurationError(
-                f"Contract '{contract_name}' missing required fields: {missing_fields}"
-            )
+    # For backtest mode, validate backtest_file exists
+    if data_config['type'] == 'backtest':
+        if 'backtest_file' not in data_config:
+            raise ConfigurationError("data_handler.backtest_file is required for backtest mode")
     
     # Validate model paths
     models_config = config.get('models', {})
-    required_models = ['rde_path', 'mrms_path', 'marl_base_path']
+    required_models = ['rde_path', 'mrms_path']
     missing_models = [m for m in required_models if m not in models_config]
     if missing_models:
         raise ConfigurationError(f"Missing required model paths: {missing_models}")
@@ -141,14 +133,14 @@ def _validate_config(config: Dict[str, Any]) -> None:
             logger.warning(f"Model directory does not exist for {model_name}: {Path(model_path).parent}")
     
     # Validate risk parameters
-    risk_config = config.get('risk', {})
-    if 'max_positions' not in risk_config:
-        config['risk']['max_positions'] = 3  # Default
-        logger.info("Using default max_positions: 3")
+    risk_config = config.get('risk_management', {})
+    if 'max_position_size' not in risk_config:
+        config['risk_management']['max_position_size'] = 100000  # Default
+        logger.info("Using default max_position_size: 100000")
     
-    if 'max_risk_per_trade' not in risk_config:
-        config['risk']['max_risk_per_trade'] = 0.02  # Default 2%
-        logger.info("Using default max_risk_per_trade: 2%")
+    if 'max_daily_loss' not in risk_config:
+        config['risk_management']['max_daily_loss'] = 5000  # Default
+        logger.info("Using default max_daily_loss: 5000")
     
     logger.info("Configuration validation completed successfully")
 

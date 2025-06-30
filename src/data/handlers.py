@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, AsyncGenerator
 import pandas as pd
 import structlog
 
-from ..core.kernel import ComponentBase, SystemKernel
+from ..core.kernel import ComponentBase, AlgoSpaceKernel
 from ..core.events import EventType, TickData
 from ..utils.logger import get_logger
 from .validators import TickValidator, DataQualityMonitor
@@ -31,7 +31,7 @@ class AbstractDataHandler(ComponentBase, ABC):
     All subclasses must emit identical NEW_TICK events.
     """
     
-    def __init__(self, name: str, kernel: SystemKernel):
+    def __init__(self, name: str, kernel: AlgoSpaceKernel):
         """
         Initialize data handler
         
@@ -148,7 +148,7 @@ class BacktestDataHandler(AbstractDataHandler):
     Maintains temporal accuracy and supports replay speed configuration.
     """
     
-    def __init__(self, name: str, kernel: SystemKernel):
+    def __init__(self, name: str, kernel: AlgoSpaceKernel):
         """Initialize backtest data handler"""
         super().__init__(name, kernel)
         
@@ -397,7 +397,7 @@ class LiveDataHandler(AbstractDataHandler):
     Full Rithmic integration will be implemented in later phases.
     """
     
-    def __init__(self, name: str, kernel: SystemKernel):
+    def __init__(self, name: str, kernel: AlgoSpaceKernel):
         """Initialize live data handler"""
         super().__init__(name, kernel)
         self.logger.warning("LiveDataHandler is placeholder - not yet implemented")
@@ -419,7 +419,7 @@ class LiveDataHandler(AbstractDataHandler):
         raise NotImplementedError("Live data handler not yet implemented")
 
 
-def create_data_handler(kernel: SystemKernel) -> AbstractDataHandler:
+def create_data_handler(kernel: AlgoSpaceKernel) -> AbstractDataHandler:
     """
     Factory function to create appropriate data handler based on configuration
     

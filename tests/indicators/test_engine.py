@@ -17,13 +17,13 @@ from collections import deque
 
 from src.indicators.engine import IndicatorEngine
 from src.core.events import EventType, Event, BarData
-from src.core.kernel import SystemKernel
+from src.core.kernel import AlgoSpaceKernel
 
 
 @pytest.fixture
 def mock_kernel():
-    """Create a mock SystemKernel for testing"""
-    kernel = Mock(spec=SystemKernel)
+    """Create a mock AlgoSpaceKernel for testing"""
+    kernel = Mock(spec=AlgoSpaceKernel)
     kernel.event_bus = Mock()
     kernel.config = Mock()
     kernel.config.primary_symbol = "NQ"
