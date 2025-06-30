@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .config import load_config
 from .event_bus import EventBus
+from .component_base import ComponentBase
 
 # Component imports - these will be replaced with actual imports as they are developed
 try:
@@ -33,9 +34,9 @@ except ImportError:
     MatrixAssembler30m = MatrixAssembler5m = MatrixAssemblerRegime = None
 
 try:
-    from ..agents.regime_engine import RegimeDetectionEngine
+    from ..agents.rde import RDEComponent
 except ImportError:
-    RegimeDetectionEngine = None
+    RDEComponent = None
 
 try:
     from ..agents.risk_manager import RiskManagementSubsystem
@@ -43,9 +44,14 @@ except ImportError:
     RiskManagementSubsystem = None
 
 try:
-    from ..agents.marl_core import MainMARLCore, SynergyDetector
+    from ..agents.marl_core import MainMARLCore
 except ImportError:
-    MainMARLCore = SynergyDetector = None
+    MainMARLCore = None
+
+try:
+    from ..agents.synergy.detector import SynergyDetector
+except ImportError:
+    SynergyDetector = None
 
 try:
     from ..components.execution_handler import LiveExecutionHandler, BacktestExecutionHandler
@@ -211,13 +217,16 @@ class AlgoSpaceKernel:
         
         # Intelligence Layer
         if SynergyDetector:
-            self.components['synergy_detector'] = SynergyDetector(self.config, self.event_bus)
+            # Pass the kernel reference with name
+            self.components['synergy_detector'] = SynergyDetector('SynergyDetector', self)
             logger.info("SynergyDetector instantiated")
         
         # Pre-trained models
-        if RegimeDetectionEngine:
-            self.components['rde'] = RegimeDetectionEngine(self.config)
-            logger.info("RegimeDetectionEngine instantiated")
+        if RDEComponent:
+            # Get RDE-specific configuration
+            rde_config = self.config.get('rde', {})
+            self.components['rde'] = RDEComponent(rde_config)
+            logger.info("RDEComponent instantiated")
         
         if RiskManagementSubsystem:
             self.components['m_rms'] = RiskManagementSubsystem(self.config)
@@ -263,7 +272,7 @@ class AlgoSpaceKernel:
         # Decision Flow Events
         if 'synergy_detector' in self.components:
             self.event_bus.subscribe('INDICATORS_READY', 
-                                   self.components['synergy_detector'].check_synergy)
+                                   self.components['synergy_detector']._handle_indicators_ready)
             logger.info("Wired: INDICATORS_READY -> SynergyDetector")
         
         if 'main_marl_core' in self.components:

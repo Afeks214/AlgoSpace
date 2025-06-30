@@ -147,7 +147,7 @@ class BaseSynergyDetector(ABC):
             config: Configuration with time windows, thresholds, etc.
         """
         self.config = config
-        self.time_window = config.get('time_window', 10)  # bars
+        self.time_window = config.get('time_window_bars', 10)  # bars
         self.cooldown_bars = config.get('cooldown_bars', 5)
         
         # State tracking

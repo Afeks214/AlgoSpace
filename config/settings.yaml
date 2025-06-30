@@ -52,15 +52,13 @@ indicators:
     
 # SynergyDetector configuration
 synergy_detector:
-  time_window: 10  # Maximum bars between signals for valid synergy
+  time_window_bars: 10     # Maximum bars between signals for valid synergy
+  cooldown_bars: 5         # Bars to wait before next detection
   
   # Signal activation thresholds
   mlmi_threshold: 0.5      # Minimum signal strength
   nwrqk_threshold: 0.3     # Minimum slope for signal
   fvg_min_size: 0.001      # Minimum gap size (0.1%)
-  
-  # Cooldown after detection
-  cooldown_bars: 5         # Bars to wait before next detection
 
 # Matrix Assemblers configuration
 matrix_assemblers:
@@ -161,3 +159,19 @@ monitoring:
   prometheus_port: ${PROMETHEUS_PORT:9090}
   enable_profiling: false
   metrics_interval: 60  # seconds
+
+# RDE (Regime Detection Engine) configuration
+rde:
+  input_dim: 155  # Number of MMD features
+  d_model: 256    # Transformer internal dimension
+  latent_dim: 8   # Regime vector dimension
+  n_heads: 8      # Attention heads
+  n_layers: 3     # Transformer layers
+  dropout: 0.1    # Dropout probability
+  device: cpu     # CPU for production stability
+  sequence_length: 24  # Expected sequence length (12 hours)
+
+# Model paths
+models:
+  rde_path: "./models/hybrid_regime_engine.pth"
+  mrms_path: "./models/m_rms_model.pth"

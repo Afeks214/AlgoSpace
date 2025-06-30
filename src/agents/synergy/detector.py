@@ -11,7 +11,8 @@ import time
 
 import structlog
 
-from ...core.kernel import ComponentBase, SystemKernel
+from ...core.component_base import ComponentBase
+from ...core.kernel import AlgoSpaceKernel
 from ...core.events import EventType, Event
 from .base import BaseSynergyDetector, Signal, SynergyPattern
 from .patterns import MLMIPatternDetector, NWRQKPatternDetector, FVGPatternDetector
@@ -36,7 +37,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
     - Zero false negatives on valid patterns
     """
     
-    def __init__(self, name: str, kernel: SystemKernel):
+    def __init__(self, name: str, kernel: AlgoSpaceKernel):
         """
         Initialize SynergyDetector.
         
@@ -56,9 +57,13 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         self.nwrqk_detector = NWRQKPatternDetector(config)
         self.fvg_detector = FVGPatternDetector(config)
         
+        # Extract configuration values
+        self.time_window_bars = config.get('time_window_bars', 10)
+        self.cooldown_bars = config.get('cooldown_bars', 5)
+        
         # Initialize sequence tracking
         self.sequence = SignalSequence(
-            time_window_bars=self.time_window,
+            time_window_bars=self.time_window_bars,
             bar_duration_minutes=5  # 5-minute bars
         )
         
@@ -90,7 +95,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         logger.info(
             "SynergyDetector initialized",
             config=config,
-            time_window=self.time_window,
+            time_window_bars=self.time_window_bars,
             cooldown_bars=self.cooldown_bars
         )
     
