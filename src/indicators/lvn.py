@@ -1,10 +1,20 @@
 """
-Low Volume Node (LVN) Core Calculations
+Low Volume Node (LVN) Core Calculations with Advanced Strength Scoring
 
-This module provides the essential LVN identification and characteristics calculation
-based on market profile analysis.
+This module provides LVN identification and sophisticated strength score calculation
+based on market profile analysis and historical price action.
 
-Extracted from: LVN_Implementation.ipynb (Phase 1 core functions only)
+Features:
+- Real-time LVN detection using volume profile analysis
+- Sophisticated strength scoring (0-100) based on:
+  * Volume profile characteristics (40 points)
+  * Historical interaction analysis (30 points)
+  * Recency of price tests (20 points)
+  * Distance from current price (10 points)
+- Historical tracking of LVN levels and price interactions
+- Comprehensive analysis of price rejection patterns
+
+Enhanced from: LVN_Implementation.ipynb with production-ready streaming analysis
 """
 
 import pandas as pd
@@ -267,6 +277,8 @@ class LVNAnalyzer:
         self.lookback_periods = config.get('lookback_periods', 20)
         self.strength_threshold = config.get('strength_threshold', 0.7)
         self.max_history_length = config.get('max_history_length', 100)
+        self.interaction_lookback = config.get('interaction_lookback', 50)  # Bars to analyze for interactions
+        self.test_threshold = config.get('test_threshold', 0.5)  # % distance to consider a test
         
         # History buffer for streaming calculation
         self.history_buffer: deque = deque(maxlen=self.max_history_length)
@@ -274,6 +286,26 @@ class LVNAnalyzer:
         # Cache for LVN levels
         self.current_lvns: List[Dict[str, Any]] = []
         self.last_calculation_time = None
+        
+        # Historical LVN tracking for strength analysis
+        self.lvn_history: deque = deque(maxlen=200)  # Track historical LVN levels
+        self.interaction_history: deque = deque(maxlen=500)  # Track price interactions with LVNs
+    
+    def calculate(self, bar_data: BarData) -> Dict[str, Any]:
+        """
+        Main calculate method that returns both lvn_nearest_price and lvn_nearest_strength
+        
+        Args:
+            bar_data: Current bar data
+            
+        Returns:
+            Dictionary with lvn_nearest_price and lvn_nearest_strength
+        """
+        result = self.calculate_30m(bar_data)
+        return {
+            'lvn_nearest_price': result['lvn_nearest_price'],
+            'lvn_nearest_strength': result['lvn_nearest_strength']
+        }
         
     def calculate_30m(self, bar_data: BarData) -> Dict[str, Any]:
         """
@@ -299,8 +331,8 @@ class LVNAnalyzer:
             # Need minimum data for calculation
             if len(self.history_buffer) < self.lookback_periods:
                 return {
-                    'nearest_lvn_price': 0.0,
-                    'nearest_lvn_strength': 0.0,
+                    'lvn_nearest_price': 0.0,
+                    'lvn_nearest_strength': 0.0,
                     'distance_to_nearest_lvn': 0.0
                 }
             
@@ -321,7 +353,7 @@ class LVNAnalyzer:
                 if volume_profile is None or volume_profile.empty:
                     return self._default_result()
                 
-                # Find LVNs (volume < 30% of POC volume)
+                # Find LVNs (volume < threshold of POC volume)
                 poc_volume = volume_profile.max()
                 lvn_threshold = poc_volume * (1 - self.strength_threshold)
                 
@@ -330,22 +362,27 @@ class LVNAnalyzer:
                 if lvn_levels.empty:
                     return self._default_result()
                 
-                # Find nearest LVN to current price
+                # Update historical tracking
                 current_price = bar_data.close
+                self._update_lvn_history(lvn_levels, current_price)
+                
+                # Find nearest LVN to current price
                 distances = abs(lvn_levels.index - current_price)
                 nearest_idx = distances.argmin()
                 nearest_lvn_price = lvn_levels.index[nearest_idx]
                 nearest_lvn_volume = lvn_levels.iloc[nearest_idx]
                 
-                # Calculate strength (0-1, where 1 is strongest LVN)
-                strength = 1 - (nearest_lvn_volume / poc_volume)
+                # Calculate sophisticated strength score (0-100)
+                strength_score = self._calculate_lvn_strength_score(
+                    nearest_lvn_price, nearest_lvn_volume, poc_volume, current_price
+                )
                 
                 # Distance in points
                 distance = abs(current_price - nearest_lvn_price)
                 
                 return {
-                    'nearest_lvn_price': float(nearest_lvn_price),
-                    'nearest_lvn_strength': float(strength),
+                    'lvn_nearest_price': float(nearest_lvn_price),
+                    'lvn_nearest_strength': float(strength_score),
                     'distance_to_nearest_lvn': float(distance)
                 }
                 
@@ -355,10 +392,217 @@ class LVNAnalyzer:
         except Exception:
             return self._default_result()
     
+    def _calculate_lvn_strength_score(self, lvn_price: float, lvn_volume: float, 
+                                     poc_volume: float, current_price: float) -> float:
+        """
+        Calculate sophisticated strength score (0-100) for an LVN level
+        
+        Args:
+            lvn_price: The LVN price level
+            lvn_volume: Volume at the LVN level
+            poc_volume: Volume at Point of Control
+            current_price: Current market price
+            
+        Returns:
+            Strength score from 0 to 100
+        """
+        # Base strength from volume profile (0-40 points)
+        volume_strength = (1 - (lvn_volume / poc_volume)) * 40 if poc_volume > 0 else 0
+        
+        # Historical interaction analysis (0-30 points)
+        interaction_score = self._analyze_historical_interactions(lvn_price)
+        
+        # Recency score (0-20 points)
+        recency_score = self._calculate_recency_score(lvn_price)
+        
+        # Distance penalty (0-10 points)
+        max_distance = self.history_buffer[-1]['high'] - self.history_buffer[-1]['low'] if self.history_buffer else 1
+        distance_ratio = min(abs(current_price - lvn_price) / max_distance, 1.0)
+        distance_score = (1 - distance_ratio) * 10
+        
+        # Combine all scores
+        total_score = volume_strength + interaction_score + recency_score + distance_score
+        
+        return min(max(total_score, 0), 100)  # Ensure 0-100 range
+    
+    def _analyze_historical_interactions(self, lvn_price: float) -> float:
+        """
+        Analyze historical price interactions with the LVN level
+        
+        Returns:
+            Score from 0 to 30 based on:
+            - Number of tests (0-15 points)
+            - Magnitude of rejections (0-15 points)
+        """
+        if len(self.history_buffer) < self.interaction_lookback:
+            return 0
+        
+        tests = 0
+        rejections = []
+        
+        # Analyze recent price action
+        for i in range(max(1, len(self.history_buffer) - self.interaction_lookback), len(self.history_buffer)):
+            prev_bar = self.history_buffer[i-1]
+            curr_bar = self.history_buffer[i]
+            
+            # Check if price tested the LVN level
+            test_distance = abs(curr_bar['high'] - curr_bar['low']) * self.test_threshold
+            
+            # Test from below
+            if prev_bar['close'] < lvn_price and curr_bar['high'] >= lvn_price - test_distance:
+                tests += 1
+                if curr_bar['close'] < lvn_price:  # Rejection
+                    rejection_magnitude = (curr_bar['high'] - curr_bar['close']) / (curr_bar['high'] - curr_bar['low'] + 0.0001)
+                    rejections.append(rejection_magnitude)
+            
+            # Test from above
+            elif prev_bar['close'] > lvn_price and curr_bar['low'] <= lvn_price + test_distance:
+                tests += 1
+                if curr_bar['close'] > lvn_price:  # Rejection
+                    rejection_magnitude = (curr_bar['close'] - curr_bar['low']) / (curr_bar['high'] - curr_bar['low'] + 0.0001)
+                    rejections.append(rejection_magnitude)
+        
+        # Score based on number of tests (max 15 points)
+        test_score = min(tests * 3, 15)
+        
+        # Score based on rejection magnitude (max 15 points)
+        rejection_score = 0
+        if rejections:
+            avg_rejection = sum(rejections) / len(rejections)
+            rejection_score = avg_rejection * 15
+        
+        return test_score + rejection_score
+    
+    def _calculate_recency_score(self, lvn_price: float) -> float:
+        """
+        Calculate recency score based on when the LVN was last tested
+        
+        Returns:
+            Score from 0 to 20 (more recent = higher score)
+        """
+        if not self.history_buffer:
+            return 0
+        
+        last_test_idx = -1
+        test_distance = abs(self.history_buffer[-1]['high'] - self.history_buffer[-1]['low']) * self.test_threshold
+        
+        # Find the most recent test
+        for i in range(len(self.history_buffer) - 1, -1, -1):
+            bar = self.history_buffer[i]
+            if (bar['low'] <= lvn_price + test_distance and 
+                bar['high'] >= lvn_price - test_distance):
+                last_test_idx = i
+                break
+        
+        if last_test_idx == -1:
+            return 0
+        
+        # Calculate recency (0-20 points, linear decay)
+        bars_since_test = len(self.history_buffer) - 1 - last_test_idx
+        recency_ratio = 1 - (bars_since_test / len(self.history_buffer))
+        
+        return recency_ratio * 20
+    
+    def _update_lvn_history(self, lvn_levels: pd.Series, current_price: float):
+        """
+        Update historical tracking of LVN levels and interactions
+        """
+        # Store current LVN levels
+        self.lvn_history.append({
+            'timestamp': self.history_buffer[-1]['timestamp'],
+            'levels': lvn_levels.index.tolist(),
+            'volumes': lvn_levels.values.tolist()
+        })
+        
+        # Track interaction if price is near any LVN
+        for lvn_price in lvn_levels.index:
+            test_distance = abs(self.history_buffer[-1]['high'] - self.history_buffer[-1]['low']) * self.test_threshold
+            if abs(current_price - lvn_price) <= test_distance:
+                self.interaction_history.append({
+                    'timestamp': self.history_buffer[-1]['timestamp'],
+                    'lvn_price': lvn_price,
+                    'price': current_price,
+                    'type': 'test'
+                })
+    
+    def get_all_lvn_levels(self, current_price: float) -> List[Dict[str, Any]]:
+        """
+        Get all current LVN levels with their strength scores
+        
+        Args:
+            current_price: Current market price for distance calculations
+            
+        Returns:
+            List of LVN levels with prices, strengths, and distances
+        """
+        if len(self.history_buffer) < self.lookback_periods:
+            return []
+        
+        try:
+            # Convert to DataFrame for market profile calculation
+            df = pd.DataFrame(list(self.history_buffer))
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.set_index('timestamp', inplace=True)
+            df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            
+            # Calculate market profile
+            mp = MarketProfile(df, tick_size=0.25)
+            mp_slice = mp[df.index.min():df.index.max()]
+            
+            volume_profile = mp_slice.profile
+            if volume_profile is None or volume_profile.empty:
+                return []
+            
+            # Find all LVNs
+            poc_volume = volume_profile.max()
+            lvn_threshold = poc_volume * (1 - self.strength_threshold)
+            lvn_levels = volume_profile[volume_profile < lvn_threshold]
+            
+            if lvn_levels.empty:
+                return []
+            
+            # Calculate strength for each LVN level
+            results = []
+            for lvn_price, lvn_volume in lvn_levels.items():
+                strength_score = self._calculate_lvn_strength_score(
+                    lvn_price, lvn_volume, poc_volume, current_price
+                )
+                
+                results.append({
+                    'price': float(lvn_price),
+                    'strength': float(strength_score),
+                    'distance': float(abs(current_price - lvn_price)),
+                    'volume': float(lvn_volume)
+                })
+            
+            # Sort by distance from current price
+            results.sort(key=lambda x: x['distance'])
+            return results
+            
+        except Exception:
+            return []
+    
+    def get_lvn_statistics(self) -> Dict[str, Any]:
+        """
+        Get comprehensive statistics about LVN analysis
+        
+        Returns:
+            Dictionary with LVN analysis statistics
+        """
+        return {
+            'history_buffer_size': len(self.history_buffer),
+            'lvn_history_size': len(self.lvn_history),
+            'interaction_history_size': len(self.interaction_history),
+            'lookback_periods': self.lookback_periods,
+            'strength_threshold': self.strength_threshold,
+            'interaction_lookback': self.interaction_lookback,
+            'test_threshold': self.test_threshold
+        }
+    
     def _default_result(self) -> Dict[str, Any]:
         """Return default result when calculation fails"""
         return {
-            'nearest_lvn_price': 0.0,
-            'nearest_lvn_strength': 0.0,
+            'lvn_nearest_price': 0.0,
+            'lvn_nearest_strength': 0.0,
             'distance_to_nearest_lvn': 0.0
         }
