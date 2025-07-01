@@ -1,84 +1,10 @@
-# Core ML/DL Libraries
-torch>=2.0.0
-ray[rllib]>=2.5.0
-tensorflow>=2.13.0  # For comparison and some models
+# Core Application & ML Libraries  
+torch --index-url https://download.pytorch.org/whl/cpu
+pandas
+numpy
+scikit-learn
+pyyaml
 
-# Data Processing
-pandas>=2.0.0
-numpy>=1.24.0
-polars>=0.18.0  # Fast dataframe operations
-pyarrow>=12.0.0  # Efficient data storage
-
-# Machine Learning
-scikit-learn>=1.3.0
-xgboost>=1.7.0
-lightgbm>=4.0.0
-optuna>=3.2.0  # Hyperparameter optimization
-
-# Time Series & Financial Analysis
-ta>=0.10.2  # Technical analysis
-ta-lib>=0.4.28  # Advanced technical indicators
-esig>=0.9.7  # Path signatures for time series
-tslearn>=0.6.0  # Time series machine learning
-arch>=6.0.0  # ARCH/GARCH models
-
-# Trading Infrastructure
-ccxt>=4.0.0  # Cryptocurrency exchange connectivity
-ib_insync>=0.9.86  # Interactive Brokers API
-# rithmic-api  # Uncomment when available
-
-# Risk Management
-pyfolio-reloaded>=0.9.5  # Portfolio analytics
-empyrical>=0.5.5  # Performance metrics
-riskfolio-lib>=4.0.0  # Portfolio optimization
-
-# Configuration & Utilities
-pyyaml>=6.0
-python-dotenv>=1.0.0
-loguru>=0.7.0  # Better logging
-rich>=13.0.0  # Rich terminal output
-typer>=0.9.0  # CLI interface
-
-# Monitoring & Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
-plotly>=5.15.0
-dash>=2.11.0  # Web dashboards
-prometheus-client>=0.17.0  # Metrics export
-
-# Database & Caching
-sqlalchemy>=2.0.0
-redis>=4.6.0
-mongodb>=4.4.0  # Via pymongo
-clickhouse-driver>=0.2.6  # Time series database
-
-# Testing & Quality
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
-pytest-mock>=3.14.0
-mypy>=1.4.0
-black>=23.7.0
-flake8>=6.1.0
-isort>=5.12.0
-
-# Async & Performance
-aiohttp>=3.8.0
-aiofiles>=23.1.0
-uvloop>=0.17.0  # Fast event loop
-numba>=0.57.0  # JIT compilation
-
-# Message Queue & Streaming
-kafka-python>=2.0.2
-aiokafka>=0.8.1
-websocket-client>=1.6.0
-
-# Documentation
-mkdocs>=1.5.0
-mkdocs-material>=9.1.0
-python-docx>=0.8.11  # DOCX file processing
-
-# Development Tools
-jupyterlab>=4.0.0
-ipywidgets>=8.0.0
-nbconvert>=7.7.0
+# Core Testing Framework
+pytest
+pytest-mock

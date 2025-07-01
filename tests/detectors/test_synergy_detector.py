@@ -25,11 +25,39 @@ def mock_kernel():
     kernel = Mock()
     kernel.config = {
         'synergy_detector': {
+            # Time and sequence parameters
             'time_window_bars': 10,
             'cooldown_bars': 5,
+            'bar_duration_minutes': 5,
+            'required_signals': 3,
+            
+            # Signal activation thresholds
             'mlmi_threshold': 0.5,
+            'mlmi_neutral_line': 50,
+            'mlmi_scaling_factor': 50,
+            'mlmi_max_strength': 1.0,
+            
             'nwrqk_threshold': 0.3,
-            'fvg_min_size': 0.001
+            'nwrqk_max_slope': 2.0,
+            'nwrqk_max_strength': 1.0,
+            
+            'fvg_min_size': 0.001,
+            'fvg_max_gap_pct': 0.01,
+            'fvg_max_strength': 1.0,
+            
+            # Performance monitoring
+            'processing_time_warning_ms': 1.0,
+            
+            # Default fallback values for missing features
+            'defaults': {
+                'current_price': 0.0,
+                'volatility': 0.0,
+                'volume_ratio': 1.0,
+                'volume_momentum': 0.0,
+                'mlmi_value': 50,
+                'nwrqk_slope': 0.0,
+                'nwrqk_value': 0.0
+            }
         }
     }
     kernel.event_bus = Mock()
@@ -378,11 +406,39 @@ class TestSynergyDetector:
         mock_kernel2 = Mock()
         mock_kernel2.config = {
             'synergy_detector': {
+                # Time and sequence parameters
                 'time_window_bars': 15,
                 'cooldown_bars': 8,
+                'bar_duration_minutes': 3,  # 3-minute bars instead of 5
+                'required_signals': 3,
+                
+                # Signal activation thresholds
                 'mlmi_threshold': 0.7,
+                'mlmi_neutral_line': 45,  # Different neutral line
+                'mlmi_scaling_factor': 45,
+                'mlmi_max_strength': 0.9,  # Lower max strength
+                
                 'nwrqk_threshold': 0.4,
-                'fvg_min_size': 0.002
+                'nwrqk_max_slope': 3.0,  # Higher max slope
+                'nwrqk_max_strength': 0.8,
+                
+                'fvg_min_size': 0.002,
+                'fvg_max_gap_pct': 0.02,  # 2% instead of 1%
+                'fvg_max_strength': 0.95,
+                
+                # Performance monitoring
+                'processing_time_warning_ms': 2.0,  # Higher threshold
+                
+                # Different defaults
+                'defaults': {
+                    'current_price': 5000.0,
+                    'volatility': 0.1,
+                    'volume_ratio': 1.5,
+                    'volume_momentum': 0.05,
+                    'mlmi_value': 45,  # Match neutral line
+                    'nwrqk_slope': 0.1,
+                    'nwrqk_value': 5000.0
+                }
             }
         }
         mock_kernel2.event_bus = Mock()
@@ -394,16 +450,33 @@ class TestSynergyDetector:
         detector2 = SynergyDetector('Detector2', mock_kernel2)
         assert detector2.time_window_bars == 15
         assert detector2.cooldown_bars == 8
+        assert detector2.bar_duration_minutes == 3
+        assert detector2.required_signals == 3
+        assert detector2.processing_time_warning_ms == 2.0
         
         # Verify pattern detectors got correct configs
         assert detector1.mlmi_detector.threshold == 0.5
         assert detector2.mlmi_detector.threshold == 0.7
+        assert detector1.mlmi_detector.neutral_line == 50
+        assert detector2.mlmi_detector.neutral_line == 45
+        assert detector1.mlmi_detector.scaling_factor == 50
+        assert detector2.mlmi_detector.scaling_factor == 45
+        assert detector1.mlmi_detector.max_strength == 1.0
+        assert detector2.mlmi_detector.max_strength == 0.9
         
         assert detector1.nwrqk_detector.threshold == 0.3
         assert detector2.nwrqk_detector.threshold == 0.4
+        assert detector1.nwrqk_detector.max_slope == 2.0
+        assert detector2.nwrqk_detector.max_slope == 3.0
+        assert detector1.nwrqk_detector.max_strength == 1.0
+        assert detector2.nwrqk_detector.max_strength == 0.8
         
         assert detector1.fvg_detector.min_size == 0.001
         assert detector2.fvg_detector.min_size == 0.002
+        assert detector1.fvg_detector.max_gap_pct == 0.01
+        assert detector2.fvg_detector.max_gap_pct == 0.02
+        assert detector1.fvg_detector.max_strength == 1.0
+        assert detector2.fvg_detector.max_strength == 0.95
         
         # Test time window behavior difference
         base_time = datetime(2024, 1, 1, 10, 0, 0)
@@ -435,6 +508,61 @@ class TestSynergyDetector:
         assert len(detector2.sequence.signals) == 2
         assert detector2.sequence.signals[0].signal_type == 'mlmi'
         assert detector2.sequence.signals[1].signal_type == 'nwrqk'
+    
+    def test_configuration_defaults_are_used(self, mock_kernel, base_timestamp):
+        """Test that configuration defaults are correctly applied when features are missing."""
+        detector = SynergyDetector('TestDetector', mock_kernel)
+        
+        # Test MLMI with missing mlmi_value (should use default from config)
+        features = {
+            'timestamp': base_timestamp,
+            'mlmi_signal': 1,
+            # mlmi_value is missing - should use default of 50
+            'current_price': 5000.0,
+            'volatility_30': 0.15,
+            'volume_ratio': 1.2,
+            'volume_momentum_30': 0.1,
+        }
+        
+        event = create_indicator_event(features, base_timestamp)
+        detector._handle_indicators_ready(event)
+        
+        # Should still detect signal using default value
+        assert len(detector.sequence.signals) == 1
+        assert detector.sequence.signals[0].signal_type == 'mlmi'
+        
+        # Test NW-RQK with missing slope (should use default from config)
+        detector.sequence.reset()
+        features2 = {
+            'timestamp': base_timestamp,
+            'nwrqk_signal': 1,
+            # nwrqk_slope is missing - should use default of 0.0
+            'nwrqk_value': 5000.0,
+            'current_price': 5000.0,
+        }
+        
+        event2 = create_indicator_event(features2, base_timestamp)
+        detector._handle_indicators_ready(event2)
+        
+        # Should not detect signal because default slope (0.0) is below threshold (0.3)
+        assert len(detector.sequence.signals) == 0
+        
+        # Test FVG with missing current_price (should use default from config)
+        features3 = {
+            'timestamp': base_timestamp,
+            'fvg_mitigation_signal': True,
+            'fvg_bullish_mitigated': True,
+            'fvg_bullish_size': 10.0,
+            'fvg_bullish_level': 5000.0,
+            # current_price is missing - should use default of 0.0
+        }
+        
+        event3 = create_indicator_event(features3, base_timestamp)
+        detector._handle_indicators_ready(event3)
+        
+        # Should not detect signal because gap_size_pct calculation will fail with price=0
+        # or signal should be rejected due to insufficient gap size
+        assert len(detector.sequence.signals) == 0
 
 
 class TestEdgeCases:

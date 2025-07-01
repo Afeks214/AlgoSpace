@@ -7,7 +7,13 @@ This module contains all agent implementations including:
 """
 
 from .synergy import SynergyDetector
+from .main_core import MainMARLCoreComponent
+from .mrms import MRMSComponent
+from .rde import RDEComponent
 
 __all__ = [
-    'SynergyDetector'
+    "SynergyDetector",
+    "MainMARLCoreComponent",
+    "MRMSComponent",
+    "RDEComponent",
 ]

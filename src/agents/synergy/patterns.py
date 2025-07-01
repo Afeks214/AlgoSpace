@@ -27,6 +27,9 @@ class MLMIPatternDetector(BasePatternDetector):
         """Initialize MLMI detector with threshold configuration."""
         super().__init__(config)
         self.threshold = config.get('mlmi_threshold', 0.5)
+        self.neutral_line = config.get('mlmi_neutral_line', 50)
+        self.scaling_factor = config.get('mlmi_scaling_factor', 50)
+        self.max_strength = config.get('mlmi_max_strength', 1.0)
         self._last_mlmi_value = None
         
     @BasePatternDetector.measure_performance
@@ -40,9 +43,10 @@ class MLMIPatternDetector(BasePatternDetector):
         Returns:
             Signal if pattern detected, None otherwise
         """
-        # Extract MLMI features
+        # Extract MLMI features with configurable defaults
+        defaults = self.config.get('defaults', {})
         mlmi_signal = features.get('mlmi_signal', 0)
-        mlmi_value = features.get('mlmi_value', 50)
+        mlmi_value = features.get('mlmi_value', defaults.get('mlmi_value', self.neutral_line))
         timestamp = features.get('timestamp', datetime.now())
         
         # No signal if no crossover
@@ -50,9 +54,9 @@ class MLMIPatternDetector(BasePatternDetector):
             return None
         
         # Check if signal strength meets threshold
-        # MLMI ranges from 0-100, neutral at 50
-        deviation_from_neutral = abs(mlmi_value - 50)
-        required_deviation = self.threshold * 50  # threshold is 0-1, scale to 0-50
+        # MLMI ranges from 0-100, neutral at configured line
+        deviation_from_neutral = abs(mlmi_value - self.neutral_line)
+        required_deviation = self.threshold * self.scaling_factor  # threshold is 0-1, scale to configured factor
         
         if deviation_from_neutral < required_deviation:
             logger.debug(
@@ -64,7 +68,7 @@ class MLMIPatternDetector(BasePatternDetector):
             return None
         
         # Calculate signal strength (0-1 scale)
-        signal_strength = min(deviation_from_neutral / 50, 1.0)
+        signal_strength = min(deviation_from_neutral / self.scaling_factor, self.max_strength)
         
         # Create signal
         signal = Signal(
@@ -113,6 +117,8 @@ class NWRQKPatternDetector(BasePatternDetector):
         """Initialize NW-RQK detector with slope threshold."""
         super().__init__(config)
         self.threshold = config.get('nwrqk_threshold', 0.3)
+        self.max_slope = config.get('nwrqk_max_slope', 2.0)
+        self.max_strength = config.get('nwrqk_max_strength', 1.0)
         
     @BasePatternDetector.measure_performance
     def detect_pattern(self, features: Dict[str, Any]) -> Optional[Signal]:
@@ -125,10 +131,11 @@ class NWRQKPatternDetector(BasePatternDetector):
         Returns:
             Signal if pattern detected, None otherwise
         """
-        # Extract NW-RQK features
+        # Extract NW-RQK features with configurable defaults
+        defaults = self.config.get('defaults', {})
         nwrqk_signal = features.get('nwrqk_signal', 0)
-        nwrqk_slope = features.get('nwrqk_slope', 0.0)
-        nwrqk_value = features.get('nwrqk_value', 0.0)
+        nwrqk_slope = features.get('nwrqk_slope', defaults.get('nwrqk_slope', 0.0))
+        nwrqk_value = features.get('nwrqk_value', defaults.get('nwrqk_value', 0.0))
         timestamp = features.get('timestamp', datetime.now())
         
         # No signal if no direction change
@@ -147,8 +154,8 @@ class NWRQKPatternDetector(BasePatternDetector):
             return None
         
         # Calculate signal strength based on slope magnitude
-        # Normalize to 0-1 scale (assuming max reasonable slope of 2.0)
-        signal_strength = min(slope_magnitude / 2.0, 1.0)
+        # Normalize to 0-1 scale using configured max slope
+        signal_strength = min(slope_magnitude / self.max_slope, self.max_strength)
         
         # Create signal
         signal = Signal(
@@ -198,6 +205,8 @@ class FVGPatternDetector(BasePatternDetector):
         """Initialize FVG detector with minimum gap size."""
         super().__init__(config)
         self.min_size = config.get('fvg_min_size', 0.001)  # 0.1% default
+        self.max_gap_pct = config.get('fvg_max_gap_pct', 0.01)  # 1% max gap for normalization
+        self.max_strength = config.get('fvg_max_strength', 1.0)
         
     @BasePatternDetector.measure_performance
     def detect_pattern(self, features: Dict[str, Any]) -> Optional[Signal]:
@@ -222,8 +231,9 @@ class FVGPatternDetector(BasePatternDetector):
         if not (bullish_mitigated or bearish_mitigated):
             return None
         
-        # Get gap details
-        current_price = features.get('current_price', 0.0)
+        # Get gap details with configurable defaults
+        defaults = self.config.get('defaults', {})
+        current_price = features.get('current_price', defaults.get('current_price', 0.0))
         timestamp = features.get('timestamp', datetime.now())
         
         # Determine direction based on mitigation type
@@ -250,8 +260,8 @@ class FVGPatternDetector(BasePatternDetector):
             return None
         
         # Signal strength based on gap size (larger gaps = stronger signal)
-        # Normalize to 0-1 scale (assuming max gap of 1%)
-        signal_strength = min(gap_size_pct / 0.01, 1.0)
+        # Normalize to 0-1 scale using configured max gap percentage
+        signal_strength = min(gap_size_pct / self.max_gap_pct, self.max_strength)
         
         # Create signal
         signal = Signal(

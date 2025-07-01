@@ -133,4 +133,4 @@ tensorboard_logs/
 # Custom
 .cache/
 scratch/
-tmp/
+tmp/test_env/

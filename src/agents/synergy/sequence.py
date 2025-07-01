@@ -26,6 +26,7 @@ class SignalSequence:
     
     time_window_bars: int = 10  # Maximum bars for sequence completion
     bar_duration_minutes: int = 5  # Duration of each bar in minutes
+    required_signals: int = 3  # Number of signals required for complete synergy
     
     # Internal state
     signals: List[Signal] = field(default_factory=list)
@@ -123,8 +124,8 @@ class SignalSequence:
         return any(s.signal_type == signal_type for s in self.signals)
     
     def is_complete(self) -> bool:
-        """Check if sequence has 3 signals (complete synergy)."""
-        return len(self.signals) == 3
+        """Check if sequence has required number of signals (complete synergy)."""
+        return len(self.signals) == self.required_signals
     
     def get_pattern(self) -> Optional[tuple]:
         """Get the signal pattern as a tuple."""

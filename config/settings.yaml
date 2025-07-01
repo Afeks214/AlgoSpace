@@ -52,13 +52,38 @@ indicators:
     
 # SynergyDetector configuration
 synergy_detector:
-  time_window_bars: 10     # Maximum bars between signals for valid synergy
-  cooldown_bars: 5         # Bars to wait before next detection
+  # Time and sequence parameters
+  time_window_bars: 10         # Maximum bars between signals for valid synergy
+  cooldown_bars: 5             # Bars to wait before next detection
+  bar_duration_minutes: 5      # Duration of each bar in minutes
+  required_signals: 3          # Number of signals required for complete synergy
   
   # Signal activation thresholds
-  mlmi_threshold: 0.5      # Minimum signal strength
-  nwrqk_threshold: 0.3     # Minimum slope for signal
-  fvg_min_size: 0.001      # Minimum gap size (0.1%)
+  mlmi_threshold: 0.5          # Minimum MLMI signal strength (0.5 = 50% deviation from neutral)
+  mlmi_neutral_line: 50        # MLMI neutral line value
+  mlmi_scaling_factor: 50      # Scaling factor for MLMI threshold calculation
+  mlmi_max_strength: 1.0       # Maximum signal strength cap
+  
+  nwrqk_threshold: 0.3         # Minimum NW-RQK slope magnitude for signal
+  nwrqk_max_slope: 2.0         # Maximum reasonable slope for normalization
+  nwrqk_max_strength: 1.0      # Maximum signal strength cap
+  
+  fvg_min_size: 0.001          # Minimum FVG gap size (0.1% of price)
+  fvg_max_gap_pct: 0.01        # Maximum gap percentage for normalization (1%)
+  fvg_max_strength: 1.0        # Maximum signal strength cap
+  
+  # Performance monitoring
+  processing_time_warning_ms: 1.0  # Processing time threshold for warnings
+  
+  # Default fallback values for missing features
+  defaults:
+    current_price: 0.0
+    volatility: 0.0
+    volume_ratio: 1.0
+    volume_momentum: 0.0
+    mlmi_value: 50
+    nwrqk_slope: 0.0
+    nwrqk_value: 0.0
 
 # Matrix Assemblers configuration
 matrix_assemblers:

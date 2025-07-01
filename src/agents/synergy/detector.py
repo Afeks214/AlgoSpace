@@ -60,17 +60,21 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         # Extract configuration values
         self.time_window_bars = config.get('time_window_bars', 10)
         self.cooldown_bars = config.get('cooldown_bars', 5)
+        self.bar_duration_minutes = config.get('bar_duration_minutes', 5)
+        self.required_signals = config.get('required_signals', 3)
+        self.processing_time_warning_ms = config.get('processing_time_warning_ms', 1.0)
         
         # Initialize sequence tracking
         self.sequence = SignalSequence(
             time_window_bars=self.time_window_bars,
-            bar_duration_minutes=5  # 5-minute bars
+            bar_duration_minutes=self.bar_duration_minutes,
+            required_signals=self.required_signals
         )
         
         # Initialize cooldown tracking
         self.cooldown = CooldownTracker(
             cooldown_bars=self.cooldown_bars,
-            bar_duration_minutes=5
+            bar_duration_minutes=self.bar_duration_minutes
         )
         
         # Performance tracking
@@ -266,13 +270,14 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
                 'strength': signal.strength
             })
         
-        # Extract market context
+        # Extract market context with configurable defaults
+        defaults = self.kernel.config.get('synergy_detector', {}).get('defaults', {})
         market_context = {
-            'current_price': features.get('current_price', 0.0),
-            'volatility': features.get('volatility_30', 0.0),
+            'current_price': features.get('current_price', defaults.get('current_price', 0.0)),
+            'volatility': features.get('volatility_30', defaults.get('volatility', 0.0)),
             'volume_profile': {
-                'volume_ratio': features.get('volume_ratio', 1.0),
-                'volume_momentum': features.get('volume_momentum_30', 0.0)
+                'volume_ratio': features.get('volume_ratio', defaults.get('volume_ratio', 1.0)),
+                'volume_momentum': features.get('volume_momentum_30', defaults.get('volume_momentum', 0.0))
             },
             'nearest_lvn': {
                 'price': features.get('lvn_nearest_price', 0.0),
@@ -334,11 +339,12 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
             processing_time_ms
         )
         
-        # Log warning if processing time exceeds 1ms
-        if processing_time_ms > 1.0:
+        # Log warning if processing time exceeds configured threshold
+        if processing_time_ms > self.processing_time_warning_ms:
             logger.warning(
-                "Processing time exceeded 1ms threshold",
-                processing_time_ms=processing_time_ms
+                "Processing time exceeded threshold",
+                processing_time_ms=processing_time_ms,
+                threshold_ms=self.processing_time_warning_ms
             )
     
     def get_status(self) -> Dict[str, Any]:
