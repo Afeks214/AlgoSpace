@@ -63,6 +63,16 @@ class EventBus:
         self.event_queue.put(event)
         logger.debug(f"Event published: {event_type}")
 
+    def emit(self, event_type: str, payload: Any = None) -> None:
+        """
+        Emits an event (alias for publish for compatibility).
+        
+        Args:
+            event_type: The name of the event.
+            payload: The data associated with the event. Defaults to None.
+        """
+        self.publish(event_type, payload)
+
     def dispatch_forever(self) -> None:
         """
         Starts an infinite loop to dispatch events from the queue to subscribers.

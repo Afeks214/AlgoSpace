@@ -728,14 +728,109 @@ class MainMARLCoreComponent:
         self.shared_policy.eval()
         self.decision_gate.eval()
     
+    def record_outcome(self, event: Any) -> None:
+        """
+        Record trade outcome for learning and performance tracking.
+        
+        This method is called when a TRADE_CLOSED event is received,
+        providing feedback for continuous learning and system improvement.
+        
+        Args:
+            event: TRADE_CLOSED event containing trade result data
+        """
+        try:
+            trade_result = event.data if hasattr(event, 'data') else event
+            execution_id = trade_result.get('execution_id', 'unknown')
+            
+            logger.info(f"Recording trade outcome for execution {execution_id}")
+            
+            # Extract trade result components
+            net_pnl = trade_result.get('trade_result', {}).get('net_pnl', 0.0)
+            outcome = trade_result.get('trade_result', {}).get('outcome', 'UNKNOWN')
+            duration = trade_result.get('trade_result', {}).get('duration_seconds', 0)
+            exit_reason = trade_result.get('trade_result', {}).get('exit_reason', 'UNKNOWN')
+            
+            # Update performance tracking
+            if not hasattr(self, 'trade_outcomes'):
+                self.trade_outcomes = []
+            
+            outcome_record = {
+                'execution_id': execution_id,
+                'timestamp': datetime.now(),
+                'net_pnl': net_pnl,
+                'outcome': outcome,
+                'duration_seconds': duration,
+                'exit_reason': exit_reason,
+                'is_win': outcome == 'WIN',
+                'decision_number': getattr(self, 'decision_count', 0),
+                'execution_number': getattr(self, 'execution_count', 0)
+            }
+            
+            self.trade_outcomes.append(outcome_record)
+            
+            # Calculate running performance metrics
+            total_trades = len(self.trade_outcomes)
+            wins = sum(1 for outcome in self.trade_outcomes if outcome['is_win'])
+            total_pnl = sum(outcome['net_pnl'] for outcome in self.trade_outcomes)
+            
+            win_rate = wins / total_trades if total_trades > 0 else 0.0
+            avg_pnl = total_pnl / total_trades if total_trades > 0 else 0.0
+            
+            # Update internal metrics
+            if not hasattr(self, 'performance_metrics'):
+                self.performance_metrics = {}
+            
+            self.performance_metrics.update({
+                'total_trades': total_trades,
+                'win_rate': win_rate,
+                'total_pnl': total_pnl,
+                'avg_pnl_per_trade': avg_pnl,
+                'last_update': datetime.now()
+            })
+            
+            logger.info(
+                f"Trade outcome recorded",
+                execution_id=execution_id,
+                outcome=outcome,
+                net_pnl=net_pnl,
+                win_rate=win_rate,
+                total_trades=total_trades
+            )
+            
+            # TODO: Implement learning feedback mechanisms
+            # - Update model weights based on outcome
+            # - Adjust decision thresholds based on performance
+            # - Store outcome data for batch learning
+            
+            # Optional: Emit performance update event
+            if total_trades % 10 == 0:  # Every 10 trades
+                self._emit_performance_update()
+                
+        except Exception as e:
+            logger.error(f"Error recording trade outcome: {e}", exc_info=True)
+    
+    def _emit_performance_update(self) -> None:
+        """Emit performance update event for monitoring systems."""
+        try:
+            event_bus = self.components.get('kernel').event_bus
+            if event_bus and hasattr(self, 'performance_metrics'):
+                event_bus.emit('PERFORMANCE_UPDATE', {
+                    'component': 'main_marl_core',
+                    'metrics': self.performance_metrics.copy(),
+                    'timestamp': datetime.now()
+                })
+                logger.info("Performance update emitted")
+        except Exception as e:
+            logger.error(f"Error emitting performance update: {e}")
+
     def get_metrics(self) -> Dict[str, Any]:
         """
         Get component performance metrics.
         
         Returns:
-            Dictionary of metrics
+            Dictionary of metrics including trade performance
         """
-        return {
+        base_metrics = {
             'decision_count': self.decision_count,
             'execution_count': self.execution_count,
             'execution_rate': (
@@ -745,6 +840,12 @@ class MainMARLCoreComponent:
             'models_loaded': self.models_loaded,
             'device': str(self.device)
         }
+        
+        # Add performance metrics if available
+        if hasattr(self, 'performance_metrics'):
+            base_metrics.update(self.performance_metrics)
+        
+        return base_metrics
     
     def __repr__(self) -> str:
         """String representation."""

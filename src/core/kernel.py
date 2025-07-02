@@ -12,7 +12,7 @@ from .component_base import ComponentBase
 
 # Component imports - these will be replaced with actual imports as they are developed
 try:
-    from ..components.data_handler import LiveDataHandler, BacktestDataHandler
+    from ..data.handlers import LiveDataHandler, BacktestDataHandler
 except ImportError:
     LiveDataHandler = BacktestDataHandler = None
 

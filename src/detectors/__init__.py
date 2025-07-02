@@ -1,0 +1,1 @@
+"""Synergy detection module"""
