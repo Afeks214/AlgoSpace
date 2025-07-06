@@ -96,12 +96,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         self._last_features = {}
         self._initialized = False
         
-        logger.info(
-            "SynergyDetector initialized",
-            config=config,
-            time_window_bars=self.time_window_bars,
-            cooldown_bars=self.cooldown_bars
-        )
+        logger.info(f"SynergyDetector initialized config={config} time_window_bars={self.time_window_bars} cooldown_bars={self.cooldown_bars}")
     
     async def initialize(self):
         """Initialize the component and subscribe to events."""
@@ -123,10 +118,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         )
         
         # Log final metrics
-        logger.info(
-            "SynergyDetector shutting down",
-            metrics=self.performance_metrics
-        )
+        logger.info(f"SynergyDetector shutting down metrics={self.performance_metrics}")
     
     def _handle_indicators_ready(self, event: Event):
         """
@@ -156,11 +148,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
             self._update_performance_metrics(time.perf_counter() - start_time)
             
         except Exception as e:
-            logger.error(
-                "Error processing indicators",
-                error=str(e),
-                event_type=event.event_type.value
-            )
+            logger.error(f"Error processing indicators error={str(e)} event_type={event.event_type.value}")
     
     def process_features(self, features: Dict[str, Any], timestamp: datetime) -> Optional[SynergyPattern]:
         """
@@ -204,11 +192,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
                     
                     return synergy
                 elif synergy and not self.cooldown.can_emit():
-                    logger.info(
-                        "Synergy detected but in cooldown",
-                        synergy_type=synergy.synergy_type,
-                        remaining_bars=self.cooldown.get_remaining_bars()
-                    )
+                    logger.info(f"Synergy detected but in cooldown synergy_type={synergy.synergy_type} remaining_bars={self.cooldown.get_remaining_bars()}")
                     # Reset sequence even though we can't emit
                     self.sequence.reset()
         
@@ -242,10 +226,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         synergy_type = self.SYNERGY_PATTERNS.get(pattern)
         
         if not synergy_type:
-            logger.warning(
-                "Complete sequence but not a valid synergy pattern",
-                pattern=pattern
-            )
+            logger.warning(f"Complete sequence but not a valid synergy pattern pattern={pattern}")
             return None
         
         # Create synergy pattern
@@ -314,13 +295,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         )
         self.kernel.event_bus.publish(event)
         
-        logger.info(
-            "SYNERGY DETECTED",
-            synergy_type=synergy.synergy_type,
-            direction='LONG' if synergy.direction == 1 else 'SHORT',
-            bars_to_complete=synergy.bars_to_complete,
-            pattern=[s.signal_type for s in synergy.signals]
-        )
+        logger.info(f"SYNERGY DETECTED synergy_type={synergy.synergy_type} direction={'LONG' if synergy.direction == 1 else 'SHORT'} bars_to_complete={synergy.bars_to_complete} pattern={[s.signal_type for s in synergy.signals]}")
     
     def _update_performance_metrics(self, processing_time: float):
         """Update performance metrics."""
@@ -341,11 +316,7 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         
         # Log warning if processing time exceeds configured threshold
         if processing_time_ms > self.processing_time_warning_ms:
-            logger.warning(
-                "Processing time exceeded threshold",
-                processing_time_ms=processing_time_ms,
-                threshold_ms=self.processing_time_warning_ms
-            )
+            logger.warning(f"Processing time exceeded threshold processing_time_ms={processing_time_ms} threshold_ms={self.processing_time_warning_ms}")
     
     def get_status(self) -> Dict[str, Any]:
         """Get component status for monitoring."""

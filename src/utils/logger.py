@@ -73,10 +73,7 @@ def setup_logging(log_level: Optional[str] = None, log_dir: Optional[str] = None
     _logging_configured = True
     
     logger = structlog.get_logger()
-    logger.info("Logging system initialized", 
-                log_level=log_level, 
-                log_file=str(log_file),
-                environment=os.getenv("ENVIRONMENT", "production"))
+    logger.info(f"Logging system initialized log_level={log_level} log_file={str(log_file)} environment={os.getenv('ENVIRONMENT', 'production')}")
 
 
 def get_logger(name: str = None) -> structlog.BoundLogger:

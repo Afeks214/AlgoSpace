@@ -50,11 +50,7 @@ class StructureAnalyzer(BaseTradeAgent):
         # Agent weighting in ensemble
         self.agent_weight = 0.4  # 40% weight in consensus
         
-        logger.info(
-            "Initialized Structure Analyzer",
-            window=config['window'],
-            hidden_dim=config['hidden_dim']
-        )
+        logger.info(f"Initialized Structure Analyzer window={config['window']} hidden_dim={config['hidden_dim']}")
     
     def _build_policy_head(self) -> nn.Module:
         """

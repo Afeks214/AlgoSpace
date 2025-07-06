@@ -53,12 +53,7 @@ class RewardShaper:
         # Cooperation bonus
         self.cooperation_weight = config.get('cooperation_weight', 0.1)
         
-        logger.info(
-            "Initialized reward shaper",
-            potential_shaping=self.use_potential_shaping,
-            curiosity_bonus=self.use_curiosity_bonus,
-            exploration_bonus=self.use_exploration_bonus
-        )
+        logger.info(f"Initialized reward shaper potential_shaping={self.use_potential_shaping} curiosity_bonus={self.use_curiosity_bonus} exploration_bonus={self.use_exploration_bonus}")
     
     def shape_rewards(
         self,
@@ -209,7 +204,7 @@ class RewardShaper:
         key_components = []
         
         # Position info
-        position = state.get('position', {})
+        position = state.get('position', {)}
         if isinstance(position, dict):
             key_components.append(position.get('side', 'flat'))
             key_components.append(str(round(position.get('size', 0), 2)))

@@ -1,10 +1,24 @@
-# Core Application & ML Libraries  
-torch --index-url https://download.pytorch.org/whl/cpu
-pandas
-numpy
-scikit-learn
-pyyaml
+# Core dependencies
+torch>=2.7.1
+torchvision>=0.18.1
+torchaudio>=2.5.1
+numpy>=1.24.0
+pandas>=2.0.0
+structlog>=23.1.0
 
-# Core Testing Framework
-pytest
-pytest-mock
+# Scientific computing
+scipy>=1.10.0
+scikit-learn>=1.3.0
+
+# Development and testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.7.0
+flake8>=6.0.0
+
+# Optional GPU support
+# nvidia-ml-py3>=7.352.0
+
+# Documentation
+sphinx>=7.1.0
+sphinx-rtd-theme>=1.3.0

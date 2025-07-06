@@ -46,9 +46,7 @@ class BaseTrainer(ABC):
         self.training_losses = []
         self.metrics_history = {}
         
-        logger.info(
-            "Initialized base trainer",
-            device=str(self.device),
+        logger.info(f"Initialized base trainer device={str(self.device}")
             batch_size=self.batch_size,
             learning_rate=self.learning_rate
         )
@@ -101,7 +99,7 @@ class BaseTrainer(ABC):
             env: Training environment
             num_episodes: Number of episodes to train
         """
-        logger.info("Starting training", num_episodes=num_episodes)
+        logger.info(f"Starting training num_episodes={num_episodes}")
         
         for episode in range(num_episodes):
             # Collect experience
@@ -132,17 +130,13 @@ class BaseTrainer(ABC):
     
     def _log_progress(self, episode: int, metrics: Dict[str, float]):
         """Log training progress."""
-        logger.info(
-            "Training progress",
-            episode=episode,
-            **metrics
-        )
+        logger.info(f"Training progress episode={episode} {**metrics}")
     
     def _save_checkpoint(self, episode: int):
         """Save training checkpoint."""
         checkpoint_path = self.checkpoint_dir / f"checkpoint_ep{episode}.pt"
         self.save_checkpoint(checkpoint_path, episode)
-        logger.info("Saved checkpoint", path=str(checkpoint_path))
+        logger.info(f"Saved checkpoint path={str(checkpoint_path}"))
     
     @abstractmethod
     def save_checkpoint(self, path: Path, episode: int):

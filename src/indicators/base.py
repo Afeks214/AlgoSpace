@@ -40,7 +40,7 @@ class BaseIndicator(ABC):
         self.history_30m: List[BarData] = []
         self.max_history_length = config.get('max_history_length', 1000)
         
-        self.logger.info("Indicator initialized", config=config)
+        self.logger.info(f"Indicator initialized config={config}")
     
     def calculate_5m(self, bar: BarData) -> Dict[str, Any]:
         """
@@ -177,11 +177,7 @@ class BaseIndicator(ABC):
     
     def log_calculation(self, timeframe: str, values: Dict[str, Any]) -> None:
         """Log calculation completion"""
-        self.logger.debug(
-            "Calculation completed",
-            timeframe=timeframe,
-            values={k: v for k, v in values.items() if isinstance(v, (int, float, bool))}
-        )
+        self.logger.debug(f"Calculation completed timeframe={timeframe} values_count={len(values)}")
     
     def validate_config(self, required_keys: List[str]) -> None:
         """
@@ -222,7 +218,7 @@ class BaseIndicator(ABC):
         return (f"{self.__class__.__name__}("
                 f"initialized={self.is_initialized}, "
                 f"5m_bars={len(self.history_5m)}, "
-                f"30m_bars={len(self.history_30m)})")
+                f"30m_bars={len(self.history_30m)}")
 
 
 class IndicatorRegistry:
@@ -235,7 +231,7 @@ class IndicatorRegistry:
     def register(self, name: str, indicator: BaseIndicator) -> None:
         """Register an indicator instance"""
         self._indicators[name] = indicator
-        self.logger.info("Indicator registered", name=name, type=type(indicator).__name__)
+        self.logger.info(f"Indicator registered name={name} type={type(indicator).__name__}")
     
     def get(self, name: str) -> Optional[BaseIndicator]:
         """Get indicator by name"""
@@ -249,7 +245,7 @@ class IndicatorRegistry:
         """Remove indicator from registry"""
         if name in self._indicators:
             del self._indicators[name]
-            self.logger.info("Indicator removed", name=name)
+            self.logger.info(f"Indicator removed name={name}")
             return True
         return False
     

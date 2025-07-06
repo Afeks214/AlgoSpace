@@ -59,12 +59,7 @@ class MLMIPatternDetector(BasePatternDetector):
         required_deviation = self.threshold * self.scaling_factor  # threshold is 0-1, scale to configured factor
         
         if deviation_from_neutral < required_deviation:
-            logger.debug(
-                "MLMI signal below threshold",
-                mlmi_value=mlmi_value,
-                deviation=deviation_from_neutral,
-                required=required_deviation
-            )
+            logger.debug(f"MLMI signal below threshold mlmi_value={mlmi_value} deviation={deviation_from_neutral} required={required_deviation}")
             return None
         
         # Calculate signal strength (0-1 scale)
@@ -83,12 +78,7 @@ class MLMIPatternDetector(BasePatternDetector):
             }
         )
         
-        logger.info(
-            "MLMI pattern detected",
-            direction=mlmi_signal,
-            value=mlmi_value,
-            strength=signal_strength
-        )
+        logger.info(f"MLMI pattern detected direction={mlmi_signal} value={mlmi_value} strength={signal_strength}")
         
         return signal
     
@@ -145,12 +135,7 @@ class NWRQKPatternDetector(BasePatternDetector):
         # Check if slope magnitude meets threshold
         slope_magnitude = abs(nwrqk_slope)
         if slope_magnitude < self.threshold:
-            logger.debug(
-                "NW-RQK slope below threshold",
-                slope=nwrqk_slope,
-                magnitude=slope_magnitude,
-                threshold=self.threshold
-            )
+            logger.debug(f"NW-RQK slope below threshold slope={nwrqk_slope} magnitude={slope_magnitude} threshold={self.threshold}")
             return None
         
         # Calculate signal strength based on slope magnitude
@@ -171,12 +156,7 @@ class NWRQKPatternDetector(BasePatternDetector):
             }
         )
         
-        logger.info(
-            "NW-RQK pattern detected",
-            direction=nwrqk_signal,
-            slope=nwrqk_slope,
-            strength=signal_strength
-        )
+        logger.info(f"NW-RQK pattern detected direction={nwrqk_signal} slope={nwrqk_slope} strength={signal_strength}")
         
         return signal
     
@@ -252,11 +232,7 @@ class FVGPatternDetector(BasePatternDetector):
         # Check minimum size requirement (as percentage)
         gap_size_pct = gap_size / current_price if current_price > 0 else 0
         if gap_size_pct < self.min_size:
-            logger.debug(
-                "FVG gap size below threshold",
-                gap_size_pct=gap_size_pct,
-                min_size=self.min_size
-            )
+            logger.debug(f"FVG gap size below threshold gap_size_pct={gap_size_pct} min_size={self.min_size}")
             return None
         
         # Signal strength based on gap size (larger gaps = stronger signal)
@@ -279,13 +255,7 @@ class FVGPatternDetector(BasePatternDetector):
             }
         )
         
-        logger.info(
-            "FVG mitigation pattern detected",
-            gap_type='bullish' if bullish_mitigated else 'bearish',
-            direction=direction,
-            gap_size_pct=f"{gap_size_pct:.4f}",
-            strength=signal_strength
-        )
+        logger.info(f"FVG mitigation pattern detected gap_type={'bullish' if bullish_mitigated else 'bearish'} direction={direction} gap_size_pct={f"{gap_size_pct:.4f}"} strength={signal_strength}")
         
         return signal
     

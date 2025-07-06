@@ -72,11 +72,7 @@ class MarketDataLoader:
             
             self.data_cache[cache_key] = df
             
-            logger.info(
-                "Loaded market data",
-                symbol=symbol,
-                timeframe=timeframe,
-                rows=len(df),
+            logger.info(f"Loaded market data symbol={symbol} timeframe={timeframe} rows={len(df}")
                 start=df.index[0],
                 end=df.index[-1]
             )
@@ -84,9 +80,7 @@ class MarketDataLoader:
             return df
         else:
             # Generate synthetic data for testing
-            logger.warning(
-                "Data file not found, generating synthetic data",
-                file_path=str(file_path)
+            logger.warning(f"Data file not found, generating synthetic data file_path={str(file_path}")
             )
             return self._generate_synthetic_data(symbol, timeframe)
     
@@ -117,9 +111,9 @@ class MarketDataLoader:
         
         # OHLCV data
         data = {
-            'open': prices * (1 + np.random.uniform(-0.001, 0.001, periods)),
-            'high': prices * (1 + np.random.uniform(0, 0.002, periods)),
-            'low': prices * (1 + np.random.uniform(-0.002, 0, periods)),
+            'open': prices * (1 + np.random.uniform(-0.001, 0.001, periods),
+            'high': prices * (1 + np.random.uniform(0, 0.002, periods),
+            'low': prices * (1 + np.random.uniform(-0.002, 0, periods),
             'close': prices,
             'volume': np.random.lognormal(10, 1, periods)
         }
@@ -558,4 +552,4 @@ class DataPipeline:
             if isinstance(df, pd.DataFrame):
                 df.to_parquet(output_path / f"{key}.parquet")
         
-        logger.info("Saved preprocessed data", path=str(output_path))
+        logger.info(f"Saved preprocessed data path={str(output_path}"))

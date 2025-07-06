@@ -66,10 +66,7 @@ class BarGenerator(ComponentBase):
         # Initialize bar validator
         self.bar_validator = BarValidator()
         
-        self.logger.info("BarGenerator initialized",
-                        timeframes=self.timeframes,
-                        symbol=self.symbol,
-                        gap_fill=self.gap_fill)
+        self.logger.info(f"BarGenerator initialized timeframes={self.timeframes} symbol={self.symbol} gap_fill={self.gap_fill}")
     
     async def start(self) -> None:
         """Start the BarGenerator component"""
@@ -91,11 +88,7 @@ class BarGenerator(ComponentBase):
         total_bars = sum(self.bars_emitted.values())
         total_gaps = sum(self.gaps_filled.values())
         
-        self.logger.info("BarGenerator stopped",
-                        total_ticks_processed=self.tick_count,
-                        total_bars_emitted=total_bars,
-                        total_gaps_filled=total_gaps,
-                        bars_by_timeframe=self.bars_emitted)
+        self.logger.info(f"BarGenerator stopped total_ticks_processed={self.tick_count} total_bars_emitted={total_bars} total_gaps_filled={total_gaps} bars_by_timeframe={self.bars_emitted}")
         
         await super().stop()
     
@@ -121,14 +114,10 @@ class BarGenerator(ComponentBase):
             
             # Debug logging (if enabled)
             if self.tick_count % 10000 == 0:  # Every 10k ticks
-                self.logger.debug("Tick processing progress",
-                                tick_count=self.tick_count,
-                                bars_emitted=self.bars_emitted)
+                self.logger.debug(f"Tick processing progress tick_count={self.tick_count} bars_emitted={self.bars_emitted}")
         
         except Exception as e:
-            self.logger.error("Error processing tick",
-                            tick_data=tick_data,
-                            error=str(e))
+            self.logger.error(f"Error processing tick tick_data={tick_data} error={str(e)}")
             # Continue processing to maintain system stability
     
     def _validate_tick(self, tick_data: TickData) -> bool:
@@ -144,30 +133,28 @@ class BarGenerator(ComponentBase):
         try:
             # Check for required fields
             if not tick_data.symbol or not tick_data.timestamp:
-                self.logger.warning("Invalid tick - missing symbol or timestamp", tick=tick_data)
+                self.logger.warning(f"Invalid tick - missing symbol or timestamp tick={tick_data}")
                 return False
             
             # Check price validity
             if tick_data.price <= 0:
-                self.logger.warning("Invalid tick - negative or zero price", tick=tick_data)
+                self.logger.warning(f"Invalid tick - negative or zero price tick={tick_data}")
                 return False
             
             # Check volume validity (allow zero volume)
             if tick_data.volume < 0:
-                self.logger.warning("Invalid tick - negative volume", tick=tick_data)
+                self.logger.warning(f"Invalid tick - negative volume tick={tick_data}")
                 return False
             
             # Check symbol match
             if tick_data.symbol != self.symbol:
-                self.logger.debug("Tick for different symbol ignored", 
-                                expected=self.symbol, 
-                                received=tick_data.symbol)
+                self.logger.debug(f"Tick for different symbol ignored expected={self.symbol} received={tick_data.symbol}")
                 return False
             
             return True
             
         except Exception as e:
-            self.logger.error("Error validating tick", tick=tick_data, error=str(e))
+            self.logger.error(f"Error validating tick tick={tick_data} error={str(e)}")
             return False
     
     def _process_tick_for_timeframe(self, tick_data: TickData, timeframe: int) -> None:
@@ -304,9 +291,7 @@ class BarGenerator(ComponentBase):
         
         if last_price is None:
             # No previous price data available
-            self.logger.warning("Cannot create gap-fill bar - no previous price data",
-                              timeframe=timeframe,
-                              timestamp=timestamp.isoformat())
+            self.logger.warning(f"Cannot create gap-fill bar - no previous price data timeframe={timeframe} timestamp={timestamp.isoformat()}")
             return None
         
         # Create synthetic bar with OHLC = last_price, volume = 0
@@ -352,11 +337,7 @@ class BarGenerator(ComponentBase):
             is_valid, validation_errors = self.bar_validator.validate_bar(bar_data)
             
             if not is_valid:
-                self.logger.error("Invalid bar data detected",
-                                timeframe=timeframe,
-                                bar=bar_data,
-                                errors=validation_errors,
-                                is_gap_fill=is_gap_fill)
+                self.logger.error(f"Invalid bar data detected timeframe={timeframe} bar={bar_data} errors={validation_errors} is_gap_fill={is_gap_fill}")
                 # Skip emitting invalid bars
                 return
             
@@ -385,10 +366,7 @@ class BarGenerator(ComponentBase):
             )
             
         except Exception as e:
-            self.logger.error("Error emitting bar",
-                            timeframe=timeframe,
-                            bar=working_bar,
-                            error=str(e))
+            self.logger.error(f"Error emitting bar timeframe={timeframe} bar={working_bar} error={str(e)}")
     
     async def _finalize_bar(self, timeframe: int) -> None:
         """

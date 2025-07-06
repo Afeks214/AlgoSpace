@@ -50,7 +50,7 @@ class ValidationResult:
     def __str__(self) -> str:
         """String representation"""
         status = "VALID" if self.is_valid else "INVALID"
-        return f"ValidationResult({status}, errors={len(self.errors)}, warnings={len(self.warnings)})"
+        return f"ValidationResult({status}, errors={len(self.errors)}, warnings={len(self.warnings))}"
 
 
 class BaseValidator(ABC):
@@ -483,10 +483,7 @@ class DataQualityMonitor:
         if len(self.anomalies) > self.max_anomalies:
             self.anomalies = self.anomalies[-self.max_anomalies:]
         
-        self.logger.warning(
-            "Data anomaly detected",
-            data_type=data_type,
-            errors=len(result.errors),
+        self.logger.warning(f"Data anomaly detected data_type={data_type} errors={len(result.errors}"),
             warnings=len(result.warnings)
         )
     

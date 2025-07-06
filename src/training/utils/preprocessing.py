@@ -96,7 +96,7 @@ class DataPreprocessor:
             self.scalers['technical'].fit(technical_array)
         
         self.is_fitted = True
-        logger.info("Preprocessor fitting complete", stats=self.stats)
+        logger.info(f"Preprocessor fitting complete stats={self.stats}")
     
     def transform_matrix(self, matrix: np.ndarray, agent_type: str) -> np.ndarray:
         """
@@ -205,7 +205,7 @@ class DataPreprocessor:
                 'stats': self.stats,
                 'config': self.config
             }, f)
-        logger.info("Saved preprocessing stats", path=path)
+        logger.info(f"Saved preprocessing stats path={path}")
     
     def load_stats(self, path: str):
         """Load preprocessing statistics."""
@@ -215,7 +215,7 @@ class DataPreprocessor:
             self.scalers = data['scalers']
             self.stats = data['stats']
             self.is_fitted = True
-        logger.info("Loaded preprocessing stats", path=path)
+        logger.info(f"Loaded preprocessing stats path={path}")
 
 
 class FeatureEngineer:

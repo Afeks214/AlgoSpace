@@ -144,6 +144,12 @@ matrix_assemblers:
   regime:
     window_size: 96  # 48 hours of 30-minute bars
     warmup_period: 30
+    features:
+      - volatility_30
+      - volume_profile_skew
+      - price_acceleration
+      - momentum_divergence
+      - regime_strength
     feature_configs:
       volatility_30:
         ema_alpha: 0.05
@@ -268,3 +274,19 @@ main_core:
 models:
   rde_path: "./models/hybrid_regime_engine.pth"
   mrms_path: "./models/m_rms_model.pth"
+# Data configuration (REQUIRED)
+data:
+  tick_buffer_size: 1000
+  bar_buffer_size: 100
+  max_memory_mb: 2048
+  cleanup_interval: 60
+  backtest_file: "data/historical/ES - 5 min.csv"
+  
+  # Thread safety
+  use_locks: true
+  max_concurrent_operations: 10
+  
+  # Recovery settings
+  enable_recovery: true
+  recovery_timeout: 30
+  max_recovery_attempts: 3

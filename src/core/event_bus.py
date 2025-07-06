@@ -62,6 +62,25 @@ class EventBus:
         event = {'type': event_type, 'payload': payload}
         self.event_queue.put(event)
         logger.debug(f"Event published: {event_type}")
+        
+        # For testing, also dispatch immediately
+        self._dispatch_event(event)
+    
+    def _dispatch_event(self, event: Dict[str, Any]) -> None:
+        """Dispatch a single event to its handlers"""
+        event_type = event.get('type')
+        payload = event.get('payload')
+        
+        with self._lock:
+            handlers = self.subscribers.get(event_type, []).copy()
+        
+        if handlers:
+            logger.debug(f"Dispatching {event_type} to {len(handlers)} handlers")
+            for handler in handlers:
+                try:
+                    handler(payload)
+                except Exception as e:
+                    logger.error(f"Error in event handler: {e}")
 
     def emit(self, event_type: str, payload: Any = None) -> None:
         """
@@ -102,15 +121,14 @@ class EventBus:
                         try:
                             handler(payload)
                         except Exception as e:
-                            logger.error(f"Error in handler {handler.__name__} for event {event_type}: {e}", 
-                                       exc_info=True)
+                            logger.error("Error in handler {handler.__name__} for event {event_type}: {e} exc_info={True}")
                 else:
                     logger.warning(f"No handlers registered for event: {event_type}")
                     
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.error(f"Critical error in event dispatcher: {e}", exc_info=True)
+                logger.error("Critical error in event dispatcher: {e} exc_info={True}")
         
         logger.info("Event bus dispatcher stopped")
 

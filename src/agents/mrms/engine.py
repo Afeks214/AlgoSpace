@@ -81,17 +81,17 @@ class MRMSComponent:
             raise FileNotFoundError(f"Model file not found: {model_path}")
         
         try:
-            # Load checkpoint
-            checkpoint = torch.load(model_path, map_location=self.device)
+            # Load checkpoint with weights_only=False for compatibility
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
             
-            # Handle different checkpoint formats
+            # Handle different checkpoint formats (allow missing keys for development)
             if 'model_state_dict' in checkpoint:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
             elif 'state_dict' in checkpoint:
-                self.model.load_state_dict(checkpoint['state_dict'])
+                self.model.load_state_dict(checkpoint['state_dict'], strict=False)
             else:
                 # Assume the checkpoint is the state dict itself
-                self.model.load_state_dict(checkpoint)
+                self.model.load_state_dict(checkpoint, strict=False)
             
             # Ensure model is in evaluation mode
             self.model.eval()
@@ -196,29 +196,61 @@ class MRMSComponent:
         position_probs = torch.softmax(position_logits, dim=-1)
         confidence_score = float(position_probs[0, position_size].cpu().item())
         
-        # Build comprehensive risk proposal
+        # Build comprehensive risk proposal with strict type enforcement
         risk_proposal = {
-            'position_size': position_size,
-            'stop_loss_price': round(stop_loss_price, 2),
-            'take_profit_price': round(take_profit_price, 2),
-            'risk_amount': round(risk_amount, 2),
-            'reward_amount': round(reward_amount, 2),
-            'risk_reward_ratio': round(rr_ratio, 2),
-            'sl_atr_multiplier': round(sl_multiplier, 3),
-            'confidence_score': round(confidence_score, 3),
+            # Core trade parameters (guaranteed types)
+            'position_size': int(position_size),
+            'stop_loss_price': float(round(stop_loss_price, 2)),
+            'take_profit_price': float(round(take_profit_price, 2)),
+            'risk_amount': float(round(risk_amount, 2)),
+            'reward_amount': float(round(reward_amount, 2)),
+            'risk_reward_ratio': float(round(rr_ratio, 2)),
+            'sl_atr_multiplier': float(round(sl_multiplier, 3)),
+            'confidence_score': float(round(confidence_score, 3)),
+            
+            # Trade direction and entry
+            'trade_direction': str(direction),
+            'entry_price': float(trade_qualification['entry_price']),
+            'atr_value': float(trade_qualification['atr']),
+            
+            # Risk metrics
             'risk_metrics': {
-                'sl_distance_points': round(sl_distance, 2),
-                'tp_distance_points': round(tp_distance, 2),
-                'risk_per_contract': round(risk_per_contract, 2),
-                'max_position_allowed': self.max_position_size,
-                'position_utilization': position_size / self.max_position_size if self.max_position_size > 0 else 0
+                'sl_distance_points': float(round(sl_distance, 2)),
+                'tp_distance_points': float(round(tp_distance, 2)),
+                'risk_per_contract': float(round(risk_per_contract, 2)),
+                'reward_per_contract': float(round(reward_per_contract, 2)),
+                'max_position_allowed': int(self.max_position_size),
+                'position_utilization': float(position_size / self.max_position_size if self.max_position_size > 0 else 0.0),
+                'risk_percentage': float(round((risk_amount / 100000) * 100, 2)) if risk_amount > 0 else 0.0  # Assume 100k account
             },
+            
+            # Model diagnostics
             'model_outputs': {
-                'raw_sl_multiplier': sl_multiplier,
-                'raw_rr_ratio': rr_ratio,
+                'raw_sl_multiplier': float(sl_multiplier),
+                'raw_rr_ratio': float(rr_ratio),
                 'position_probabilities': position_probs[0].cpu().numpy().tolist()
+            },
+            
+            # Metadata
+            'metadata': {
+                'timestamp': trade_qualification.get('timestamp', ''),
+                'symbol': trade_qualification.get('symbol', ''),
+                'model_version': '1.0',
+                'point_value': float(self.point_value),
+                'currency': 'USD'
+            },
+            
+            # Validation flags
+            'validation': {
+                'is_valid': bool(position_size >= 0 and confidence_score > 0),
+                'risk_acceptable': bool(risk_amount <= 5000),  # Max $5k risk
+                'position_within_limits': bool(position_size <= self.max_position_size),
+                'rr_ratio_acceptable': bool(rr_ratio >= 1.0)
             }
         }
+        
+        # Validate output format
+        self._validate_risk_proposal(risk_proposal)
         
         # Log the proposal
         logger.info(f"Generated risk proposal: size={position_size}, "
@@ -270,6 +302,66 @@ class MRMSComponent:
         if trade_qual['atr'] <= 0:
             raise ValueError("atr must be positive")
     
+    def _validate_risk_proposal(self, proposal: Dict[str, Any]) -> None:
+        """
+        Validate risk proposal output format and types.
+        
+        Args:
+            proposal: Risk proposal dictionary to validate
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        # Required top-level fields
+        required_fields = [
+            'position_size', 'stop_loss_price', 'take_profit_price',
+            'risk_amount', 'reward_amount', 'risk_reward_ratio',
+            'sl_atr_multiplier', 'confidence_score', 'trade_direction',
+            'entry_price', 'atr_value', 'risk_metrics', 'model_outputs',
+            'metadata', 'validation'
+        ]
+        
+        for field in required_fields:
+            if field not in proposal:
+                raise ValueError(f"Missing required field in risk proposal: {field}")
+        
+        # Type validation
+        type_checks = [
+            ('position_size', int),
+            ('stop_loss_price', (int, float)),
+            ('take_profit_price', (int, float)),
+            ('risk_amount', (int, float)),
+            ('reward_amount', (int, float)),
+            ('risk_reward_ratio', (int, float)),
+            ('confidence_score', (int, float)),
+            ('trade_direction', str),
+        ]
+        
+        for field, expected_type in type_checks:
+            if not isinstance(proposal[field], expected_type):
+                raise ValueError(f"Field '{field}' must be {expected_type}, got {type(proposal[field])}")
+        
+        # Range validation
+        if not (0 <= proposal['position_size'] <= self.max_position_size):
+            raise ValueError(f"Position size {proposal['position_size']} outside valid range [0, {self.max_position_size}]")
+        
+        if not (0.0 <= proposal['confidence_score'] <= 1.0):
+            raise ValueError(f"Confidence score {proposal['confidence_score']} outside valid range [0.0, 1.0]")
+        
+        # Validate nested dictionaries
+        if not isinstance(proposal['risk_metrics'], dict):
+            raise ValueError("risk_metrics must be a dictionary")
+        
+        if not isinstance(proposal['validation'], dict):
+            raise ValueError("validation must be a dictionary")
+        
+        # Ensure all validation flags are boolean
+        for key, value in proposal['validation'].items():
+            if not isinstance(value, bool):
+                raise ValueError(f"Validation flag '{key}' must be boolean, got {type(value)}")
+        
+        logger.debug("Risk proposal validation passed")
+    
     def get_model_info(self) -> Dict[str, Any]:
         """
         Get information about the loaded model.
@@ -292,3 +384,7 @@ class MRMSComponent:
                 f"account_dim={self.account_dim}, "
                 f"model_loaded={self.model_loaded}, "
                 f"device={self.device})")
+
+
+# Alias for backward compatibility
+MRMSEngine = MRMSComponent

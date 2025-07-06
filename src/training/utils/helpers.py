@@ -33,7 +33,7 @@ def set_seed(seed: int = 42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
-    logger.info("Set random seed", seed=seed)
+    logger.info(f"Set random seed seed={seed}")
 
 
 def get_device(prefer_gpu: bool = True) -> torch.device:
@@ -49,7 +49,7 @@ def get_device(prefer_gpu: bool = True) -> torch.device:
     if prefer_gpu and torch.cuda.is_available():
         device = torch.device('cuda')
         gpu_name = torch.cuda.get_device_name(0)
-        logger.info("Using GPU", device=gpu_name)
+        logger.info(f"Using GPU device={gpu_name}")
     else:
         device = torch.device('cpu')
         logger.info("Using CPU")
@@ -104,9 +104,7 @@ def save_checkpoint(
             'timestamp': checkpoint['timestamp']
         }, f, indent=2)
     
-    logger.info(
-        "Saved checkpoint",
-        filepath=str(filepath),
+    logger.info(f"Saved checkpoint filepath={str(filepath}")
         epoch=epoch,
         metrics=metrics
     )
@@ -147,9 +145,7 @@ def load_checkpoint(
     if optimizer and 'optimizer_state_dict' in checkpoint:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
-    logger.info(
-        "Loaded checkpoint",
-        filepath=str(filepath),
+    logger.info(f"Loaded checkpoint filepath={str(filepath}")
         epoch=checkpoint.get('epoch', 0),
         metrics=checkpoint.get('metrics', {})
     )
@@ -193,7 +189,7 @@ def get_optimizer(
             model.parameters(),
             lr=learning_rate,
             weight_decay=weight_decay,
-            betas=config.get('betas', (0.9, 0.999)),
+            betas=config.get('betas', (0.9, 0.999),
             eps=config.get('eps', 1e-8)
         )
     elif optimizer_type.lower() == 'adamw':
@@ -201,7 +197,7 @@ def get_optimizer(
             model.parameters(),
             lr=learning_rate,
             weight_decay=weight_decay,
-            betas=config.get('betas', (0.9, 0.999)),
+            betas=config.get('betas', (0.9, 0.999),
             eps=config.get('eps', 1e-8)
         )
     elif optimizer_type.lower() == 'sgd':
@@ -215,12 +211,7 @@ def get_optimizer(
     else:
         raise ValueError(f"Unknown optimizer type: {optimizer_type}")
     
-    logger.info(
-        "Created optimizer",
-        type=optimizer_type,
-        lr=learning_rate,
-        weight_decay=weight_decay
-    )
+    logger.info(f"Created optimizer type={optimizer_type} lr={learning_rate} weight_decay={weight_decay}")
     
     return optimizer
 
@@ -272,11 +263,7 @@ def get_scheduler(
     else:
         raise ValueError(f"Unknown scheduler type: {scheduler_type}")
     
-    logger.info(
-        "Created scheduler",
-        type=scheduler_type,
-        config=config
-    )
+    logger.info(f"Created scheduler type={scheduler_type} config={config}")
     
     return scheduler
 
@@ -402,6 +389,6 @@ def log_system_info():
             for i in range(torch.cuda.device_count())
         ]
     
-    logger.info("System information", **info)
+    logger.info(f"System information {**info}")
     
     return info

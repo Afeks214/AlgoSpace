@@ -156,11 +156,7 @@ class BaseSynergyDetector(ABC):
         self.last_synergy_time = None
         self.bars_processed_since_synergy = 0
         
-        logger.info(
-            "Initialized synergy detector",
-            time_window=self.time_window,
-            cooldown_bars=self.cooldown_bars
-        )
+        logger.info(f"Initialized synergy detector time_window={self.time_window} cooldown_bars={self.cooldown_bars}")
     
     @abstractmethod
     def process_features(self, features: Dict[str, Any], timestamp: datetime) -> Optional[SynergyPattern]:

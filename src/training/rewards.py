@@ -631,7 +631,7 @@ class RiskAdjustedReward(RewardFunction):
     def compute(self, state: Dict[str, Any], action: Dict[str, Any],
                 next_state: Dict[str, Any], info: Dict[str, Any]) -> float:
         """Compute risk-adjusted reward."""
-        trade_result = info.get('trade_result', {})
+        trade_result = info.get('trade_result', {)}
         portfolio = info.get('portfolio', {})
         
         if trade_result.get('executed', False):
@@ -756,7 +756,7 @@ class TimingPrecisionReward(RewardFunction):
                 next_state: Dict[str, Any], info: Dict[str, Any]) -> float:
         """Compute timing precision reward."""
         action_probs = action.get('action_probs', [])
-        trade_result = info.get('trade_result', {})
+        trade_result = info.get('trade_result', {)}
         
         if trade_result.get('executed', False) and len(action_probs) > 0:
             action_taken = trade_result.get('action_type', 'hold')
@@ -789,7 +789,7 @@ class RiskComplianceReward(RewardFunction):
     def compute(self, state: Dict[str, Any], action: Dict[str, Any],
                 next_state: Dict[str, Any], info: Dict[str, Any]) -> float:
         """Compute risk compliance reward."""
-        portfolio = info.get('portfolio', {})
+        portfolio = info.get('portfolio', {)}
         risk_action = action.get('risk_action', [])
         
         if len(risk_action) > 0:
@@ -815,7 +815,7 @@ class RiskComplianceReward(RewardFunction):
                 return -0.3 * violations * self.scale_factor
             # Reward for allowing good trades
             elif action_type == 0 and violations == 0:
-                if info.get('trade_result', {}).get('pnl', 0) > 0:
+                if info.get('trade_result', {)}.get('pnl', 0) > 0:
                     return 0.2 * self.scale_factor
         
         return 0.0

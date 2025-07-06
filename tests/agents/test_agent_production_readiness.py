@@ -211,7 +211,7 @@ class TestRDEProductionReadiness:
             stability_measures.append(diff)
         
         avg_stability = np.mean(stability_measures)
-        assert avg_stability < 2.0, f"Regime changes too large (avg: {avg_stability:.2f})"
+        assert avg_stability < 2.0, f"Regime changes too large (avg: {avg_stability:.2f)}"
         
         # Test uniqueness - regime vectors should span the space
         pairwise_distances = []
@@ -221,7 +221,7 @@ class TestRDEProductionReadiness:
                 pairwise_distances.append(dist)
         
         avg_uniqueness = np.mean(pairwise_distances)
-        assert avg_uniqueness > 0.1, f"Regime vectors too similar (avg distance: {avg_uniqueness:.2f})"
+        assert avg_uniqueness > 0.1, f"Regime vectors too similar (avg distance: {avg_uniqueness:.2f)}"
     
     def test_rde_model_loading_and_checkpoints(self, rde_config):
         """Test model loading functionality and checkpoint handling."""

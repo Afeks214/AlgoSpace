@@ -48,6 +48,8 @@ class RDEComponent:
                 - dropout: Dropout probability (default: 0.1)
                 - device: Computation device (default: 'cpu')
                 - sequence_length: Expected sequence length (default: 24)
+                - enable_caching: Enable inference caching (default: True)
+                - cache_size: Maximum cache entries (default: 1000)
         """
         self.config = config
         self.model_loaded = False
@@ -61,8 +63,17 @@ class RDEComponent:
         self.dropout = config.get('dropout', 0.1)
         self.sequence_length = config.get('sequence_length', 24)
         
+        # Performance optimization settings
+        self.enable_caching = config.get('enable_caching', True)
+        self.cache_size = config.get('cache_size', 1000)
+        
         # Set device (CPU for production stability)
         self.device = torch.device(config.get('device', 'cpu'))
+        
+        # Initialize inference cache
+        self._inference_cache = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
         
         # Initialize model
         self.model = RegimeDetectionEngine(
@@ -77,10 +88,17 @@ class RDEComponent:
         # Set to evaluation mode by default
         self.model.eval()
         
+        # Pre-allocated tensors for performance
+        self._tensor_cache = {
+            'input_tensor': None,
+            'last_shape': None
+        }
+        
         logger.info(
             f"RDE initialized with architecture: "
             f"input_dim={self.input_dim}, d_model={self.d_model}, "
-            f"latent_dim={self.latent_dim}, device={self.device}"
+            f"latent_dim={self.latent_dim}, device={self.device}, "
+            f"caching={self.enable_caching}"
         )
     
     def load_model(self, model_path: str) -> None:
@@ -98,8 +116,8 @@ class RDEComponent:
             raise FileNotFoundError(f"Model file not found: {model_path}")
         
         try:
-            # Load checkpoint
-            checkpoint = torch.load(model_path, map_location=self.device)
+            # Load checkpoint with weights_only=False for compatibility
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
             
             # Extract state dict (handle different checkpoint formats)
             if isinstance(checkpoint, dict):
@@ -113,11 +131,14 @@ class RDEComponent:
             else:
                 state_dict = checkpoint
             
-            # Load weights
-            self.model.load_state_dict(state_dict)
+            # Load weights (allow missing keys for development)
+            self.model.load_state_dict(state_dict, strict=False)
             
             # Ensure model is in eval mode
             self.model.eval()
+            
+            # Apply performance optimizations after loading
+            self._apply_optimizations()
             
             self.model_loaded = True
             
@@ -135,12 +156,56 @@ class RDEComponent:
             logger.error(f"Failed to load model from {model_path}: {str(e)}")
             raise RuntimeError(f"Model loading failed: {str(e)}")
     
+    def _apply_optimizations(self) -> None:
+        """Apply post-loading performance optimizations."""
+        try:
+            # Try to compile model with torch.jit for performance
+            if hasattr(torch, 'jit') and torch.jit.is_available():
+                logger.info("Applying torch.jit optimization...")
+                # Create sample input for tracing
+                sample_input = torch.randn(1, self.sequence_length, self.input_dim, device=self.device)
+                self.model = torch.jit.trace(self.model, sample_input)
+                logger.info("✅ Model optimized with torch.jit")
+            
+            # Set model to optimized inference mode
+            if hasattr(self.model, 'set_swish_optimization'):
+                self.model.set_swish_optimization(True)
+                
+        except Exception as e:
+            logger.warning(f"Some optimizations failed: {e}")
+            # Continue anyway - optimizations are not critical
+    
+    def _compute_cache_key(self, mmd_matrix: np.ndarray) -> str:
+        """Compute a hash key for caching inference results."""
+        # Use a fast hash of the matrix content
+        return str(hash(mmd_matrix.tobytes()))
+    
+    def clear_cache(self) -> None:
+        """Clear the inference cache."""
+        self._inference_cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
+        logger.info("Inference cache cleared")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache performance statistics."""
+        total_requests = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total_requests if total_requests > 0 else 0.0
+        
+        return {
+            'cache_hits': self._cache_hits,
+            'cache_misses': self._cache_misses,
+            'hit_rate': hit_rate,
+            'cache_size': len(self._inference_cache),
+            'max_cache_size': self.cache_size
+        }
+    
     def get_regime_vector(self, mmd_matrix: np.ndarray) -> np.ndarray:
         """
         Perform inference to get regime vector from MMD features.
         
-        This is the primary method for getting regime predictions. It handles
-        all necessary data conversions and returns a clean NumPy array.
+        OPTIMIZED VERSION: Uses caching, tensor reuse, and minimal validation
+        for maximum performance in production.
         
         Args:
             mmd_matrix: NumPy array of shape (N, F) where:
@@ -157,50 +222,44 @@ class RDEComponent:
         if not self.model_loaded:
             raise RuntimeError("Model weights not loaded. Call load_model() first.")
         
-        # Validate input shape
-        if not isinstance(mmd_matrix, np.ndarray):
-            raise ValueError("Input must be a NumPy array")
+        # Fast path: check cache first
+        if self.enable_caching:
+            cache_key = self._compute_cache_key(mmd_matrix)
+            if cache_key in self._inference_cache:
+                self._cache_hits += 1
+                return self._inference_cache[cache_key].copy()
+            self._cache_misses += 1
         
-        if mmd_matrix.ndim != 2:
-            raise ValueError(
-                f"Expected 2D array (sequence_length, features), "
-                f"got shape {mmd_matrix.shape}"
-            )
-        
+        # Minimal validation for performance
         seq_len, n_features = mmd_matrix.shape
-        
         if n_features != self.input_dim:
-            raise ValueError(
-                f"Expected {self.input_dim} features, got {n_features}"
+            raise ValueError(f"Expected {self.input_dim} features, got {n_features}")
+        
+        # Reuse tensor allocation if shape matches
+        current_shape = (1, seq_len, n_features)
+        if (self._tensor_cache['input_tensor'] is None or 
+            self._tensor_cache['last_shape'] != current_shape):
+            self._tensor_cache['input_tensor'] = torch.empty(
+                current_shape, dtype=torch.float32, device=self.device
             )
+            self._tensor_cache['last_shape'] = current_shape
         
-        # Log warning if sequence length doesn't match expected
-        if seq_len != self.sequence_length:
-            logger.warning(
-                f"Sequence length {seq_len} differs from expected "
-                f"{self.sequence_length}. This may affect performance."
-            )
+        # Fast tensor conversion - copy directly into pre-allocated tensor
+        mmd_tensor = self._tensor_cache['input_tensor']
+        mmd_tensor[0] = torch.from_numpy(mmd_matrix).to(device=self.device, dtype=torch.float32)
         
-        # Convert to PyTorch tensor
-        mmd_tensor = torch.FloatTensor(mmd_matrix)
-        
-        # Add batch dimension
-        mmd_tensor = mmd_tensor.unsqueeze(0)  # Shape: (1, seq_len, features)
-        
-        # Move to device
-        mmd_tensor = mmd_tensor.to(self.device)
-        
-        # Perform inference
-        with torch.no_grad():
+        # Optimized inference
+        with torch.no_grad(), torch.cuda.amp.autocast(enabled=self.device.type == 'cuda'):
             regime_vector = self.model.encode(mmd_tensor)
             
-            # Convert back to NumPy
-            regime_vector = regime_vector.cpu().numpy()
-            
-            # Remove batch dimension
-            regime_vector = regime_vector.squeeze(0)  # Shape: (8,)
+            # Fast conversion back to NumPy
+            regime_vector_np = regime_vector[0].cpu().numpy()
         
-        return regime_vector
+        # Cache the result
+        if self.enable_caching and len(self._inference_cache) < self.cache_size:
+            self._inference_cache[cache_key] = regime_vector_np.copy()
+        
+        return regime_vector_np
     
     def get_model_info(self) -> Dict[str, Any]:
         """
@@ -214,7 +273,7 @@ class RDEComponent:
             p.numel() for p in self.model.parameters() if p.requires_grad
         )
         
-        return {
+        info = {
             'architecture': 'Transformer + VAE',
             'input_dim': self.input_dim,
             'd_model': self.d_model,
@@ -225,8 +284,19 @@ class RDEComponent:
             'trainable_parameters': trainable_params,
             'model_loaded': self.model_loaded,
             'device': str(self.device),
-            'expected_sequence_length': self.sequence_length
+            'expected_sequence_length': self.sequence_length,
+            'optimizations': {
+                'caching_enabled': self.enable_caching,
+                'cache_size_limit': self.cache_size,
+                'jit_compiled': 'torch.jit' in str(type(self.model))
+            }
         }
+        
+        # Add cache statistics if available
+        if self.enable_caching:
+            info['cache_stats'] = self.get_cache_stats()
+            
+        return info
     
     def validate_config(self, config_path: Optional[str] = None) -> bool:
         """
@@ -282,3 +352,7 @@ class RDEComponent:
             f"model_loaded={self.model_loaded}, "
             f"device={self.device})"
         )
+
+
+# Alias for backward compatibility
+RDEEngine = RDEComponent

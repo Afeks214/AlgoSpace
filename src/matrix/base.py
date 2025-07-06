@@ -150,7 +150,7 @@ class BaseMatrixAssembler(ABC):
         except Exception as e:
             self.error_count += 1
             self.last_error_time = datetime.now()
-            self.logger.error(f"Error in matrix update: {e}", exc_info=True)
+            self.logger.error("Error in matrix update: {e} exc_info={True}")
     
     def _update_matrix(self, feature_store: Dict[str, Any]) -> None:
         """
@@ -269,7 +269,7 @@ class BaseMatrixAssembler(ABC):
             return raw_features
             
         except Exception as e:
-            self.logger.error(f"Critical error in feature extraction: {e}", exc_info=True)
+            self.logger.error("Critical error in feature extraction: {e} exc_info={True}")
             return None
     
     @abstractmethod

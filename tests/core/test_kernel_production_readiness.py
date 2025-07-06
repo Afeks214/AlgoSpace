@@ -408,7 +408,7 @@ class TestEventBusProductionReadiness:
         start_time = time.time()
         
         for i in range(10000):
-            event_bus.publish('HIGH_THROUGHPUT_EVENT', {'value': i})
+            event_bus.publish('HIGH_THROUGHPUT_EVENT', {'value': i)}
         
         # Wait for all events to be processed
         while event_bus.event_queue.qsize() > 0:
@@ -684,7 +684,7 @@ class TestComponentIntegration:
         def tick_handler(payload):
             event_flow.append(('NEW_TICK', payload))
             # Simulate bar generation
-            event_bus.publish('NEW_5MIN_BAR', {'bar_data': 'test_bar'})
+            event_bus.publish('NEW_5MIN_BAR', {'bar_data': 'test_bar')}
         
         def bar_handler(payload):
             event_flow.append(('NEW_5MIN_BAR', payload))

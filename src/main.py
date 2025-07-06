@@ -153,7 +153,7 @@ def main():
         kernel.shutdown()
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Critical error in main: {e}", exc_info=True)
+        logger.error("Critical error in main: {e} exc_info={True}")
         kernel.shutdown()
         sys.exit(1)
     finally:

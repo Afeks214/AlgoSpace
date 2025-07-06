@@ -48,20 +48,12 @@ class SignalSequence:
             self.start_time = signal.timestamp
             self._bars_since_start = 0
             self.signals.append(signal)
-            logger.info(
-                "Started new signal sequence",
-                signal_type=signal.signal_type,
-                direction=signal.direction
-            )
+            logger.info(f"Started new signal sequence signal_type={signal.signal_type} direction={signal.direction}")
             return True
         
         # Check if sequence has expired
         if self._is_expired(signal.timestamp):
-            logger.info(
-                "Signal sequence expired",
-                bars_elapsed=self._bars_since_start,
-                max_bars=self.time_window_bars
-            )
+            logger.info(f"Signal sequence expired bars_elapsed={self._bars_since_start} max_bars={self.time_window_bars}")
             self.reset()
             # Start new sequence with this signal
             self.start_time = signal.timestamp
@@ -70,11 +62,7 @@ class SignalSequence:
         
         # Check direction consistency
         if not self._is_direction_consistent(signal):
-            logger.info(
-                "Direction inconsistency detected, resetting sequence",
-                existing_direction=self.signals[0].direction,
-                new_direction=signal.direction
-            )
+            logger.info(f"Direction inconsistency detected, resetting sequence existing_direction={self.signals[0].direction} new_direction={signal.direction}")
             self.reset()
             # Start new sequence with this signal
             self.start_time = signal.timestamp
@@ -83,21 +71,13 @@ class SignalSequence:
         
         # Check for duplicate signal types (can't have same signal twice)
         if self._has_signal_type(signal.signal_type):
-            logger.debug(
-                "Duplicate signal type in sequence",
-                signal_type=signal.signal_type
-            )
+            logger.debug(f"Duplicate signal type in sequence signal_type={signal.signal_type}")
             # Don't reset, just ignore this signal
             return True
         
         # All checks passed, add signal
         self.signals.append(signal)
-        logger.info(
-            "Added signal to sequence",
-            signal_type=signal.signal_type,
-            sequence_length=len(self.signals),
-            sequence=[s.signal_type for s in self.signals]
-        )
+        logger.info(f"Added signal to sequence signal_type={signal.signal_type} sequence_length={len(self.signals)} sequence={[s.signal_type for s in self.signals]}")
         return True
     
     def _is_expired(self, current_time: datetime) -> bool:
@@ -196,11 +176,7 @@ class CooldownTracker:
         """Start a new cooldown period."""
         self.last_synergy_time = timestamp
         self.bars_since_synergy = 0
-        logger.info(
-            "Cooldown started",
-            cooldown_bars=self.cooldown_bars,
-            timestamp=timestamp.isoformat()
-        )
+        logger.info(f"Cooldown started cooldown_bars={self.cooldown_bars} timestamp={timestamp.isoformat()}")
     
     def update(self, current_time: datetime):
         """Update cooldown state with current time."""

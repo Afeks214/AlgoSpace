@@ -458,7 +458,7 @@ class MainMARLCoreComponent:
                 )
                 
         except Exception as e:
-            logger.error(f"Error in trade qualification: {e}", exc_info=True)
+            logger.error("Error in trade qualification: {e} exc_info={True}")
             self._handle_error(synergy_event, e)
     
     def _create_trade_qualification(
@@ -556,7 +556,7 @@ class MainMARLCoreComponent:
         features.append(0.5)  # Placeholder for 10th feature
         
         # Timing features (3 features)
-        metadata = synergy_event.get('metadata', {})
+        metadata = synergy_event.get('metadata', {)}
         features.extend([
             metadata.get('bars_to_complete', 5) / 10.0,
             1.0,  # Placeholder
@@ -807,7 +807,7 @@ class MainMARLCoreComponent:
                 self._emit_performance_update()
                 
         except Exception as e:
-            logger.error(f"Error recording trade outcome: {e}", exc_info=True)
+            logger.error("Error recording trade outcome: {e} exc_info={True}")
     
     def _emit_performance_update(self) -> None:
         """Emit performance update event for monitoring systems."""

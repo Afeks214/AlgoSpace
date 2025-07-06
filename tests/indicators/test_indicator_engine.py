@@ -198,7 +198,7 @@ class TestLVNStrengthScore:
                 'low': 1.0850,
                 'close': 1.0855,
                 'volume': 1000  # High volume
-            })
+            )}
             timestamps.append(base_time + timedelta(minutes=i))
         
         # Low volume around 1.0870-1.0880 (LVN area)

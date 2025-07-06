@@ -241,7 +241,7 @@ class TestIndicatorEngine:
         indicator_engine.mlmi.calculate_30m = Mock(return_value={
             'mlmi_value': 3.5,
             'mlmi_signal': 1
-        })
+        )}
         indicator_engine.nwrqk.calculate_30m = Mock(return_value={
             'nwrqk_value': 15020.0,
             'nwrqk_signal': 0
@@ -328,7 +328,7 @@ class TestIndicatorEngine:
             'fvg_nearest_level': 15010.0,
             'fvg_age': 2,
             'fvg_mitigation_signal': False
-        })
+        )}
         
         # Mock event publishing
         indicator_engine.publish_event = Mock()
@@ -397,7 +397,7 @@ class TestIndicatorEngine:
         # Mock base MMD result
         indicator_engine.mmd.calculate_30m = Mock(return_value={
             'mmd_features': np.array([0, 0, 0, 0, 0, 0, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
-        })
+        )}
         
         # Populate enough history
         for i in range(100):

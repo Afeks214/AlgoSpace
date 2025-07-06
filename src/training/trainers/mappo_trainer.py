@@ -94,9 +94,7 @@ class MAPPOTrainer(BaseTrainer):
             'kl_divergence', 'clip_fraction', 'explained_variance'
         ])
         
-        logger.info(
-            "Initialized MAPPO trainer",
-            num_agents=len(self.agents),
+        logger.info(f"Initialized MAPPO trainer num_agents={len(self.agents}")
             clip_epsilon=self.clip_epsilon,
             entropy_coef=self.entropy_coef
         )
@@ -611,7 +609,7 @@ class MAPPOTrainer(BaseTrainer):
         
         torch.save(checkpoint, path)
         
-        logger.info("Saved checkpoint", path=str(path), episode=episode)
+        logger.info(f"Saved checkpoint path={str(path}"), episode=episode)
     
     def load_checkpoint(self, path: Path):
         """
@@ -647,4 +645,4 @@ class MAPPOTrainer(BaseTrainer):
         
         episode = checkpoint.get('episode', 0)
         
-        logger.info("Loaded checkpoint", path=str(path), episode=episode)
+        logger.info(f"Loaded checkpoint path={str(path}"), episode=episode)

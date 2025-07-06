@@ -63,11 +63,7 @@ class MidFrequencyArbitrageur(BaseTradeAgent):
         # Agent weighting in ensemble
         self.agent_weight = 0.3  # 30% weight in consensus
         
-        logger.info(
-            "Initialized Mid-frequency Arbitrageur",
-            window=config['window'],
-            hidden_dim=config['hidden_dim']
-        )
+        logger.info(f"Initialized Mid-frequency Arbitrageur window={config['window']} hidden_dim={config['hidden_dim']}")
     
     def _build_policy_head(self) -> nn.Module:
         """

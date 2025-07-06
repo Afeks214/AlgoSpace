@@ -314,7 +314,7 @@ class TestMMDFeatureVector:
         base_features = np.ones(13) * 0.5
         indicator_engine.mmd.calculate_30m = Mock(return_value={
             'mmd_features': base_features
-        })
+        )}
         
         bar_data = BarData(
             symbol="NQ",

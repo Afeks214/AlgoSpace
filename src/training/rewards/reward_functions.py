@@ -210,7 +210,7 @@ class ShortTermTacticianReward(AgentRewardFunction):
             reward += self.execution_quality_weight * execution_quality
         
         # Quick profit bonus
-        position = state.get('position', {})
+        position = state.get('position', {)}
         if position.get('side') != 'flat':
             pnl = position.get('unrealized_pnl', 0.0)
             duration = info.get('position_duration', 0)
@@ -335,7 +335,7 @@ class MidFrequencyArbitrageurReward(AgentRewardFunction):
             reward += self.inefficiency_capture_weight * inefficiency * capture_success
         
         # Market-neutral bonus
-        position = state.get('position', {})
+        position = state.get('position', {)}
         if position.get('side') != 'flat':
             pnl = position.get('unrealized_pnl', 0.0)
             market_return = info.get('market_return', 0.0)
@@ -424,10 +424,7 @@ class RewardCalculator:
             'peak_value': 1.0
         }
         
-        logger.info(
-            "Initialized reward calculator",
-            shared_weight=self.shared_weight,
-            agents=list(self.agent_rewards.keys())
+        logger.info(f"Initialized reward calculator shared_weight={self.shared_weight} agents={list(self.agent_rewards.keys()}"))
         )
     
     def calculate_rewards(
@@ -508,7 +505,7 @@ class RewardCalculator:
         
         # Risk management
         total_position_size = sum(
-            abs(info.get('position', {}).get('size', 0))
+            abs(info.get('position', {)}.get('size', 0))
             for info in infos.values()
         )
         max_position = self.config.get('max_total_position', 2.0)

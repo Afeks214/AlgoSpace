@@ -19,7 +19,7 @@ import json
 
 from src.training.environment import MultiAgentTradingEnv
 from src.training.experience import ExperienceBuffer, Trajectory
-from src.agents.base.marl_agent import BaseMARL Agent
+from src.agents.base.marl_agent import BaseMARLAgent
 
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class MAPPOTrainer:
         
         logger.info(f"Initialized MAPPO trainer with {self.n_agents} agents on {self.device}")
     
-    def _initialize_agents(self) -> Dict[str, BaseMARL Agent]:
+    def _initialize_agents(self) -> Dict[str, BaseMARLAgent]:
         """Initialize all agents.
         
         Returns:

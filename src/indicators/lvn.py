@@ -134,7 +134,7 @@ def identify_and_classify_lvns(price_df: pd.DataFrame,
                 all_lvns.append({
                     'lvn_timestamp': day_end_time,
                     'lvn_price': lvn_price
-                })
+                )}
 
         except Exception:
             continue
@@ -250,7 +250,7 @@ def calculate_lvn_characteristics(lvn_df: pd.DataFrame, price_df: pd.DataFrame) 
                 'in_value_area': in_value_area,
                 'day_range': day_range,
                 'volume': lvn_volume
-            })
+            )}
             
         except Exception:
             continue
@@ -512,7 +512,7 @@ class LVNAnalyzer:
             'timestamp': self.history_buffer[-1]['timestamp'],
             'levels': lvn_levels.index.tolist(),
             'volumes': lvn_levels.values.tolist()
-        })
+        )}
         
         # Track interaction if price is near any LVN
         for lvn_price in lvn_levels.index:
@@ -573,7 +573,7 @@ class LVNAnalyzer:
                     'strength': float(strength_score),
                     'distance': float(abs(current_price - lvn_price)),
                     'volume': float(lvn_volume)
-                })
+                )}
             
             # Sort by distance from current price
             results.sort(key=lambda x: x['distance'])

@@ -345,11 +345,7 @@ class MultiAgentTradingEnv:
         self.current_step = 0
         self.episode_data = []
         
-        logger.info(
-            "Initialized multi-agent trading environment",
-            n_agents=self.n_agents,
-            agents=list(self.agents.keys())
-        )
+        logger.info(f"Initialized multi-agent trading environment n_agents={self.n_agents} agents={list(self.agents.keys())}")
     
     def reset(self) -> Dict[str, Dict[str, np.ndarray]]:
         """

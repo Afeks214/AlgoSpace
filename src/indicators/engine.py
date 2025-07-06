@@ -100,11 +100,7 @@ class IndicatorEngine(ComponentBase):
         # Initialize indicator instances with default parameters
         self._initialize_indicators()
         
-        self.logger.info("IndicatorEngine initialized",
-                        symbol=self.symbol,
-                        timeframes=self.timeframes,
-                        indicators=list(self.indicators_config.keys()),
-                        feature_store_size=len(self.feature_store))
+        self.logger.info(f"IndicatorEngine initialized symbol={self.symbol} timeframes={self.timeframes} indicators={list(self.indicators_config.keys())} feature_store_size={len(self.feature_store)}")
     
     def _initialize_indicators(self) -> None:
         """Initialize all indicator instances with default parameters"""
@@ -149,7 +145,7 @@ class IndicatorEngine(ComponentBase):
             self.logger.info("All indicators initialized with default parameters")
             
         except Exception as e:
-            self.logger.error("Failed to initialize indicators", error=str(e))
+            self.logger.error(f"Failed to initialize indicators error={str(e)}")
             raise
     
     def _initialize_feature_store(self) -> None:
@@ -278,11 +274,7 @@ class IndicatorEngine(ComponentBase):
     async def stop(self) -> None:
         """Stop the IndicatorEngine component"""
         # Log final statistics
-        self.logger.info("IndicatorEngine stopping",
-                        calculations_5min=self.calculations_5min,
-                        calculations_30min=self.calculations_30min,
-                        events_emitted=self.events_emitted,
-                        final_feature_count=len(self.feature_store))
+        self.logger.info(f"IndicatorEngine stopping calculations_5min={self.calculations_5min} calculations_30min={self.calculations_30min} events_emitted={self.events_emitted} final_feature_count={len(self.feature_store)}")
         
         await super().stop()
     
@@ -310,23 +302,17 @@ class IndicatorEngine(ComponentBase):
             
             # Verify performance requirement (<50ms)
             if calc_time > 50:
-                self.logger.warning("5-min calculation exceeded 50ms threshold",
-                                   calculation_time_ms=calc_time)
+                self.logger.warning(f"5-min calculation exceeded 50ms threshold calculation_time_ms={calc_time}")
             
             # Update Feature Store atomically
             asyncio.create_task(self._update_feature_store_5min(features_5min, bar_data.timestamp))
             
             self.calculations_5min += 1
             
-            self.logger.debug("5-min features calculated",
-                            timestamp=bar_data.timestamp.isoformat(),
-                            calc_time_ms=calc_time,
-                            features=list(features_5min.keys()))
+            self.logger.debug(f"5-min features calculated timestamp={bar_data.timestamp.isoformat()} calc_time_ms={calc_time} features={list(features_5min.keys())}")
             
         except Exception as e:
-            self.logger.error("Error processing 5-min bar",
-                            bar_data=bar_data,
-                            error=str(e))
+            self.logger.error(f"Error processing 5-min bar bar_data={bar_data} error={str(e)}")
     
     def _on_30min_bar(self, event: Event) -> None:
         """
@@ -357,8 +343,7 @@ class IndicatorEngine(ComponentBase):
             
             # Verify performance requirement (<100ms)
             if calc_time > 100:
-                self.logger.warning("30-min calculation exceeded 100ms threshold",
-                                   calculation_time_ms=calc_time)
+                self.logger.warning(f"30-min calculation exceeded 100ms threshold calculation_time_ms={calc_time}")
             
             # Update Feature Store atomically
             asyncio.create_task(self._update_feature_store_30min(features_30min, bar_data.timestamp))
@@ -366,15 +351,10 @@ class IndicatorEngine(ComponentBase):
             self.calculations_30min += 1
             self.has_30min_data = True
             
-            self.logger.debug("30-min features calculated",
-                            timestamp=bar_data.timestamp.isoformat(),
-                            calc_time_ms=calc_time,
-                            features=list(features_30min.keys()))
+            self.logger.debug(f"30-min features calculated timestamp={bar_data.timestamp.isoformat()} calc_time_ms={calc_time} features={list(features_30min.keys())}")
             
         except Exception as e:
-            self.logger.error("Error processing 30-min bar",
-                            bar_data=bar_data,
-                            error=str(e))
+            self.logger.error(f"Error processing 30-min bar bar_data={bar_data} error={str(e)}")
     
     def _validate_bar_data(self, bar_data: BarData, timeframe: str) -> bool:
         """
@@ -390,18 +370,14 @@ class IndicatorEngine(ComponentBase):
         try:
             # Check symbol match first
             if bar_data.symbol != self.symbol:
-                self.logger.debug(f"Bar for different symbol ignored",
-                                expected=self.symbol,
-                                received=bar_data.symbol)
+                self.logger.debug(f"Bar for different symbol ignored expected={self.symbol} received={bar_data.symbol}")
                 return False
             
             # Use BarValidator for comprehensive validation
             is_valid, validation_errors = self.bar_validator.validate_bar(bar_data)
             
             if not is_valid:
-                self.logger.warning(f"Invalid {timeframe} bar detected",
-                                  bar_data=bar_data,
-                                  errors=validation_errors)
+                self.logger.warning(f"Invalid {timeframe} bar detected bar_data={bar_data} errors={validation_errors}")
                 return False
             
             return True
@@ -477,7 +453,7 @@ class IndicatorEngine(ComponentBase):
             return features
             
         except Exception as e:
-            self.logger.error("Error calculating 5-min features", error=str(e))
+            self.logger.error(f"Error calculating 5-min features error={str(e)}")
             return {
                 'fvg_bullish_active': False,
                 'fvg_bearish_active': False,
@@ -535,7 +511,7 @@ class IndicatorEngine(ComponentBase):
             return features
             
         except Exception as e:
-            self.logger.error("Error calculating 30-min features", error=str(e))
+            self.logger.error(f"Error calculating 30-min features error={str(e)}")
             return {
                 'mlmi_value': 0.0,
                 'mlmi_signal': 0,
@@ -578,7 +554,7 @@ class IndicatorEngine(ComponentBase):
             }
             
         except Exception as e:
-            self.logger.error("Error in FVG detection", error=str(e))
+            self.logger.error(f"Error in FVG detection error={str(e)}")
             return {
                 'fvg_bullish_active': False,
                 'fvg_bearish_active': False,
@@ -619,7 +595,7 @@ class IndicatorEngine(ComponentBase):
             }
             
         except Exception as e:
-            self.logger.error("Error calculating MLMI", error=str(e))
+            self.logger.error(f"Error calculating MLMI error={str(e)}")
             return {'mlmi_value': 0.0, 'mlmi_signal': 0}
     
     def _calculate_nwrqk(self, ha_bar: Dict[str, float]) -> Dict[str, Any]:
@@ -674,7 +650,7 @@ class IndicatorEngine(ComponentBase):
             }
             
         except Exception as e:
-            self.logger.error("Error calculating NW-RQK", error=str(e))
+            self.logger.error(f"Error calculating NW-RQK error={str(e)}")
             return {'nwrqk_value': 0.0, 'nwrqk_slope': 0.0, 'nwrqk_signal': 0}
     
     def _calculate_enhanced_lvn(self, bar_data: BarData) -> Dict[str, Any]:
@@ -708,7 +684,7 @@ class IndicatorEngine(ComponentBase):
             }
             
         except Exception as e:
-            self.logger.error("Error calculating enhanced LVN", error=str(e))
+            self.logger.error(f"Error calculating enhanced LVN error={str(e)}")
             return {
                 'lvn_nearest_price': 0.0,
                 'lvn_nearest_strength': 0.0,
@@ -852,7 +828,7 @@ class IndicatorEngine(ComponentBase):
             return {'mmd_features': enhanced_features}
             
         except Exception as e:
-            self.logger.error("Error calculating enhanced MMD", error=str(e))
+            self.logger.error(f"Error calculating enhanced MMD error={str(e)}")
             return {'mmd_features': np.zeros(13)}
     
     def _update_fvg_tracking(self, bars: List[BarData]) -> None:
@@ -877,7 +853,7 @@ class IndicatorEngine(ComponentBase):
                         fvg['mitigation_bar'] = current_bar_index
             
         except Exception as e:
-            self.logger.error("Error updating FVG tracking", error=str(e))
+            self.logger.error(f"Error updating FVG tracking error={str(e)}")
     
     def _find_nearest_fvg(self, current_price: float) -> Dict[str, Any]:
         """Find the nearest active FVG to current price"""
@@ -907,7 +883,7 @@ class IndicatorEngine(ComponentBase):
             return {'level': 0.0, 'age': 0}
             
         except Exception as e:
-            self.logger.error("Error finding nearest FVG", error=str(e))
+            self.logger.error(f"Error finding nearest FVG error={str(e)}")
             return {'level': 0.0, 'age': 0}
     
     def _calculate_interaction_features(self) -> None:
@@ -926,7 +902,7 @@ class IndicatorEngine(ComponentBase):
                 self.feature_store['mlmi_div_nwrqk'] = 1.0 if mlmi_value > 0 else -1.0 if mlmi_value < 0 else 0.0
             
         except Exception as e:
-            self.logger.error("Error calculating interaction features", error=str(e))
+            self.logger.error(f"Error calculating interaction features error={str(e)}")
     
     async def _update_feature_store_5min(self, features: Dict[str, Any], timestamp: datetime) -> None:
         """
@@ -950,7 +926,7 @@ class IndicatorEngine(ComponentBase):
                 await self._check_and_emit_indicators_ready()
                 
             except Exception as e:
-                self.logger.error("Error updating Feature Store (5min)", error=str(e))
+                self.logger.error(f"Error updating Feature Store (5min) error={str(e)}")
     
     async def _update_feature_store_30min(self, features: Dict[str, Any], timestamp: datetime) -> None:
         """
@@ -977,7 +953,7 @@ class IndicatorEngine(ComponentBase):
                 await self._emit_indicators_ready()
                 
             except Exception as e:
-                self.logger.error("Error updating Feature Store (30min)", error=str(e))
+                self.logger.error(f"Error updating Feature Store (30min) error={str(e)}")
     
     async def _check_and_emit_indicators_ready(self) -> None:
         """
@@ -991,7 +967,7 @@ class IndicatorEngine(ComponentBase):
                 await self._emit_indicators_ready()
                 
         except Exception as e:
-            self.logger.error("Error checking indicators ready conditions", error=str(e))
+            self.logger.error(f"Error checking indicators ready conditions error={str(e)}")
     
     async def _emit_indicators_ready(self) -> None:
         """Emit INDICATORS_READY event with complete Feature Store"""
@@ -1010,13 +986,10 @@ class IndicatorEngine(ComponentBase):
             
             self.events_emitted += 1
             
-            self.logger.info("INDICATORS_READY emitted",
-                           feature_count=feature_store_copy['feature_count'],
-                           last_5min=self.last_update_5min.isoformat() if self.last_update_5min else None,
-                           last_30min=self.last_update_30min.isoformat() if self.last_update_30min else None)
+            self.logger.info(f"INDICATORS_READY emitted feature_count={feature_store_copy['feature_count']} last_5min={self.last_update_5min.isoformat() if self.last_update_5min else None} last_30min={self.last_update_30min.isoformat() if self.last_update_30min else None}")
             
         except Exception as e:
-            self.logger.error("Error emitting INDICATORS_READY event", error=str(e))
+            self.logger.error(f"Error emitting INDICATORS_READY event error={str(e)}")
     
     def get_current_features(self) -> Dict[str, Any]:
         """

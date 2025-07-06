@@ -192,7 +192,7 @@ class FVGDetector(BaseIndicator):
         self.body_multiplier = config.get('body_multiplier', 1.5)
         
         # Enhanced FVG parameters
-        fvg_config = config.get('fvg', {})
+        fvg_config = config.get('fvg', {)}
         self.max_age = fvg_config.get('max_age', 50)
         
         # Mitigation parameters
@@ -378,7 +378,7 @@ class FVGDetector(BaseIndicator):
             'fvg_mitigation_signal': len(recently_mitigated) > 0,
             'fvg_mitigation_strength': max_mitigation_strength,
             'fvg_mitigation_depth': max_mitigation_depth
-        })
+        )}
         
         # Set nearest gap features
         if nearest_gap:

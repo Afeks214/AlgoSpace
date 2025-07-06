@@ -8,6 +8,10 @@ from pathlib import Path
 
 from .config import load_config
 from .event_bus import EventBus
+from .thread_safety import thread_safety
+from .memory_manager import memory_manager
+from .recovery import recovery_system
+
 from .component_base import ComponentBase
 
 # Component imports - these will be replaced with actual imports as they are developed
@@ -131,7 +135,7 @@ class AlgoSpaceKernel:
             logger.info("\n=== AlgoSpace Initialization Complete. System is READY. ===")
             
         except Exception as e:
-            logger.error(f"Kernel initialization failed: {e}", exc_info=True)
+            logger.error("Kernel initialization failed: {e} exc_info={True}")
             self.shutdown()
             raise
 
@@ -367,7 +371,7 @@ class AlgoSpaceKernel:
             logger.info("Keyboard interrupt received")
             self.shutdown()
         except Exception as e:
-            logger.error(f"Critical error in main loop: {e}", exc_info=True)
+            logger.error("Critical error in main loop: {e} exc_info={True}")
             self.shutdown()
 
     def shutdown(self) -> None:
@@ -405,7 +409,7 @@ class AlgoSpaceKernel:
             logger.info("Event bus stopped")
             
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}", exc_info=True)
+            logger.error("Error during shutdown: {e} exc_info={True}")
         
         logger.info("=== System Shutdown Complete ===")
 

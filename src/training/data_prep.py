@@ -350,7 +350,7 @@ class MarketDataPipeline:
             # Create splits for each matrix type
             for matrix_type in ['5m', '30m', 'regime']:
                 if matrix_type in data:
-                    splits['train'].setdefault(symbol, {})[matrix_type] = data[matrix_type][:train_end]
+                    splits['train'].setdefault(symbol, {)}[matrix_type] = data[matrix_type][:train_end]
                     splits['val'].setdefault(symbol, {})[matrix_type] = data[matrix_type][train_end:val_end]
                     splits['test'].setdefault(symbol, {})[matrix_type] = data[matrix_type][val_end:]
             

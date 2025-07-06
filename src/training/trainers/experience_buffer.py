@@ -54,11 +54,7 @@ class ExperienceBuffer:
         self.episode_starts = []
         self.current_size = 0
         
-        logger.info(
-            "Initialized experience buffer",
-            capacity=capacity,
-            agents=agent_names
-        )
+        logger.info(f"Initialized experience buffer capacity={capacity} agents={agent_names}")
     
     def add_transition(
         self,
