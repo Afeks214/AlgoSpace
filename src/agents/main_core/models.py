@@ -95,21 +95,21 @@ class TacticalEmbedder(nn.Module):
     """
     Embedder for processing 5-minute tactical data.
     
-    Processes the 60×7 matrix from MatrixAssembler5m using LSTM
-    and attention to capture short-term dynamics.
+    Processes the 60×9 matrix from MatrixAssembler5m using LSTM
+    and attention to capture short-term dynamics including enhanced FVG features.
     
     Args:
-        input_dim: Number of input features (default: 7)
+        input_dim: Number of input features (default: 9)
         hidden_dim: LSTM hidden dimension (default: 64)
-        output_dim: Output embedding dimension (default: 48)
+        output_dim: Output embedding dimension (default: 32)
         dropout_rate: Dropout probability (default: 0.2)
     """
     
     def __init__(
         self,
-        input_dim: int = 7,
+        input_dim: int = 9,
         hidden_dim: int = 64,
-        output_dim: int = 48,
+        output_dim: int = 32,
         dropout_rate: float = 0.2
     ):
         super().__init__()
@@ -148,7 +148,7 @@ class TacticalEmbedder(nn.Module):
         Forward pass through tactical embedder.
         
         Args:
-            x: Input tensor [batch_size, 60, 7]
+            x: Input tensor [batch_size, 60, 9]
             
         Returns:
             Embedded features [batch_size, output_dim]
@@ -263,7 +263,7 @@ class SharedPolicy(nn.Module):
     probabilities for initiating the trade process.
     
     Args:
-        input_dim: Dimension of unified state vector (default: 136)
+        input_dim: Dimension of unified state vector (default: 144)
         hidden_dims: List of hidden layer dimensions
         dropout_rate: Dropout probability for MC Dropout (default: 0.2)
         action_dim: Number of actions (default: 2)
@@ -271,7 +271,7 @@ class SharedPolicy(nn.Module):
     
     def __init__(
         self,
-        input_dim: int = 136,  # 64 + 48 + 16 + 8
+        input_dim: int = 144,  # 64 + 32 + 16 + 32 (updated dimensions)
         hidden_dims: List[int] = None,
         dropout_rate: float = 0.2,
         action_dim: int = 2  # ['Initiate_Trade_Process', 'Do_Nothing']
@@ -361,14 +361,14 @@ class DecisionGate(nn.Module):
     incorporating the risk proposal from M-RMS.
     
     Args:
-        input_dim: Dimension of final state (unified + risk) (default: 144)
+        input_dim: Dimension of final state (unified + risk) (default: 152)
         hidden_dim: Hidden layer dimension (default: 64)
         dropout_rate: Dropout probability (default: 0.1)
     """
     
     def __init__(
         self,
-        input_dim: int = 144,  # 136 + 8 (risk vector)
+        input_dim: int = 152,  # 144 + 8 (risk vector)
         hidden_dim: int = 64,
         dropout_rate: float = 0.1
     ):

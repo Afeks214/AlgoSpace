@@ -211,6 +211,42 @@ class MatrixAssembler5m(BaseMatrixAssembler):
                     else:
                         processed[i] = 0.0
                         
+                elif feature_name == 'fvg_gap_size':
+                    # Gap size in absolute points - normalize by price scale
+                    if self.current_price and self.current_price > 0 and value > 0:
+                        # Normalize gap size as percentage of price
+                        gap_pct = (value / self.current_price) * 100
+                        # Scale to [0, 1] where 5% gap = 1.0
+                        processed[i] = min(gap_pct / 5.0, 1.0)
+                    else:
+                        processed[i] = 0.0
+                        
+                elif feature_name == 'fvg_gap_size_pct':
+                    # Gap size as percentage - already normalized but clip to reasonable range
+                    # Clip to 0-5% range and scale to [0, 1]
+                    processed[i] = np.clip(value / 5.0, 0.0, 1.0)
+                    
+                elif feature_name == 'fvg_mitigation_strength':
+                    # Already normalized 0-1, apply light EMA smoothing if configured
+                    feature_config = self.feature_configs.get(feature_name, {})
+                    if 'ema_alpha' in feature_config:
+                        # Get previous smoothed value
+                        prev_key = f'{feature_name}_smoothed'
+                        if not hasattr(self, prev_key):
+                            setattr(self, prev_key, value)
+                        
+                        alpha = feature_config['ema_alpha']
+                        prev_value = getattr(self, prev_key)
+                        smoothed = alpha * value + (1 - alpha) * prev_value
+                        setattr(self, prev_key, smoothed)
+                        processed[i] = float(smoothed)
+                    else:
+                        processed[i] = float(value)
+                        
+                elif feature_name == 'fvg_mitigation_depth':
+                    # Mitigation depth 0-1, already normalized
+                    processed[i] = np.clip(float(value), 0.0, 1.0)
+                        
                 else:
                     # Default processing for unknown features
                     normalizer = self.normalizers.get(feature_name)
@@ -242,15 +278,17 @@ class MatrixAssembler5m(BaseMatrixAssembler):
         Returns:
             Dictionary mapping feature names to importance scores
         """
-        # Default importance scores for known features
+        # Default importance scores for all 9 features
         default_importance = {
-            "fvg_bullish_active": 0.20,
-            "fvg_bearish_active": 0.20,
-            "fvg_nearest_level": 0.15,
-            "fvg_age": 0.10,
-            "fvg_mitigation_signal": 0.15,
-            "price_momentum_5": 0.10,
-            "volume_ratio": 0.10
+            "fvg_bullish_active": 0.15,           # Basic FVG state
+            "fvg_bearish_active": 0.15,           # Basic FVG state
+            "fvg_nearest_level": 0.12,            # Price level importance
+            "fvg_age": 0.08,                      # Gap aging
+            "fvg_mitigation_signal": 0.10,        # Mitigation signal
+            "price_momentum_5": 0.10,             # Price momentum
+            "volume_ratio": 0.08,                 # Volume analysis
+            "fvg_gap_size_pct": 0.12,             # Enhanced: gap size
+            "fvg_mitigation_strength": 0.10       # Enhanced: mitigation strength
         }
         
         # Build importance dict based on actual features
@@ -363,6 +401,24 @@ class MatrixAssembler5m(BaseMatrixAssembler):
                 # Check volume ratio is positive
                 if value < 0:
                     self.logger.warning(f"Negative volume ratio: {value}")
+                    return False
+                    
+            elif feature_name == 'fvg_gap_size':
+                # Check gap size is non-negative
+                if value < 0:
+                    self.logger.warning(f"Negative gap size: {value}")
+                    return False
+                    
+            elif feature_name == 'fvg_gap_size_pct':
+                # Check gap size percentage is non-negative and reasonable
+                if value < 0 or value > 10:  # Max 10% gap size
+                    self.logger.warning(f"Invalid gap size percentage: {value}")
+                    return False
+                    
+            elif feature_name in ['fvg_mitigation_strength', 'fvg_mitigation_depth']:
+                # Check 0-1 normalized values
+                if value < 0 or value > 1:
+                    self.logger.warning(f"Feature {feature_name} out of 0-1 range: {value}")
                     return False
             
             # General validation

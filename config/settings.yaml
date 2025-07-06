@@ -41,7 +41,20 @@ indicators:
     threshold: 0.8
   fvg:
     enabled: true
-    min_gap_size: 5
+    threshold: 0.001
+    lookback_period: 10
+    body_multiplier: 1.5
+    max_age: 50
+    mitigation:
+      penetration_weight: 0.4
+      speed_weight: 0.3
+      volume_weight: 0.2
+      age_weight: 0.1
+      min_penetration: 0.5
+      volume_lookback: 20
+    gap_size:
+      max_percentage: 0.05
+      min_percentage: 0.001
   lvn:
     enabled: true
     volume_profile_days: 20
@@ -117,10 +130,16 @@ matrix_assemblers:
       - fvg_mitigation_signal
       - price_momentum_5
       - volume_ratio
+      - fvg_gap_size_pct
+      - fvg_mitigation_strength
     feature_configs:
       price_momentum_5:
         ema_alpha: 0.1
       volume_ratio:
+        ema_alpha: 0.05
+      fvg_gap_size_pct:
+        ema_alpha: 0.1
+      fvg_mitigation_strength:
         ema_alpha: 0.05
   regime:
     window_size: 96  # 48 hours of 30-minute bars
@@ -217,8 +236,9 @@ main_core:
       output_dim: 64
       dropout: 0.2
     tactical:
+      input_dim: 9
       hidden_dim: 64
-      output_dim: 48
+      output_dim: 32
       dropout: 0.2
     regime:
       output_dim: 16
