@@ -1,0 +1,176 @@
+# Production Test Configuration for AlgoSpace Data Pipeline Testing
+# This configuration simulates a production environment for comprehensive testing
+
+# Logging Configuration
+logging:
+  level: INFO
+  format: json
+  file: logs/production_test.log
+
+# Data Handler Configuration
+data_handler:
+  type: backtest
+  symbols:
+    - NQ
+    - ES
+  timeframes:
+    - 5
+    - 30
+  buffer_size: 10000
+  max_gap_minutes: 10
+
+# Bar Generator Configuration
+bar_generator:
+  timeframes:
+    - 5   # 5-minute bars
+    - 30  # 30-minute bars
+  gap_threshold_minutes: 10
+  synthetic_bar_generation: true
+  volume_aggregation: sum
+
+# Indicator Configuration
+indicators:
+  # MLMI Configuration
+  mlmi:
+    k: 200
+    momentum_window: 20
+    min_history: 500
+    jit_compilation: true
+  
+  # NW-RQK Configuration  
+  nwrqk:
+    h: 8.0
+    r: 8.0
+    lag: 2
+    min_history: 100
+    kernel_optimization: true
+  
+  # FVG Configuration
+  fvg:
+    lookback: 1000
+    gap_threshold_pct: 0.001
+    mitigation_threshold_pct: 0.5
+    expiry_bars: 50
+  
+  # LVN Configuration
+  lvn:
+    volume_threshold: 0.1
+    strength_calculation: advanced
+    historical_lookback: 2000
+    profile_resolution: 100
+
+# Matrix Assembler Configuration
+matrix_assemblers:
+  # 30-minute Matrix
+  assembler_30m:
+    window_size: 48
+    features:
+      - mlmi_value
+      - mlmi_signal
+      - nwrqk_value
+      - nwrqk_slope
+      - lvn_distance_points
+      - lvn_nearest_strength
+      - time_hour_sin
+      - time_hour_cos
+    normalization: z_score
+    
+  # 5-minute Matrix
+  assembler_5m:
+    window_size: 60
+    features:
+      - fvg_bullish_active
+      - fvg_bearish_active
+      - fvg_nearest_level
+      - fvg_age
+      - fvg_mitigation_signal
+      - fvg_gap_size_pct
+      - fvg_mitigation_strength
+      - price_momentum_5
+      - volume_ratio
+    normalization: exponential_decay
+    
+  # Regime Matrix
+  assembler_regime:
+    window_size: 96
+    features:
+      - mmd_features
+      - volatility_30
+      - volume_profile_skew
+      - price_acceleration
+    normalization: min_max
+
+# Synergy Detector Configuration
+synergy_detector:
+  enabled: true
+  confidence_threshold: 0.7
+  pattern_types:
+    - fvg_mlmi_confluence
+    - nwrqk_lvn_alignment
+    - volume_price_divergence
+
+# Performance Requirements
+performance:
+  max_tick_processing_latency_ms: 1.0
+  max_bar_generation_latency_ms: 5.0
+  max_indicator_calculation_latency_ms: 50.0
+  max_matrix_assembly_latency_ms: 10.0
+  max_memory_usage_mb: 2048
+  max_cpu_usage_percent: 80
+
+# Event System Configuration
+event_system:
+  queue_size: 100000
+  dispatcher_threads: 1
+  error_handling: continue
+  max_handler_latency_ms: 10.0
+
+# Execution Configuration (for testing)
+execution:
+  type: backtest  # Using backtest for testing
+  order_management:
+    max_position_size: 1000
+    max_orders_per_minute: 10
+  
+# Risk Management Configuration (for testing)
+risk_management:
+  max_drawdown_percent: 5.0
+  position_sizing: fixed
+  stop_loss_pct: 1.0
+  take_profit_pct: 2.0
+
+# Agent Configuration (for testing)
+agents:
+  rde:
+    enabled: false  # Disabled for data pipeline testing
+  mrms:
+    enabled: false  # Disabled for data pipeline testing
+  main_marl_core:
+    enabled: false  # Disabled for data pipeline testing
+
+# Model Configuration (for testing)
+models:
+  model_paths:
+    structure_agent: "models/structure_agent_test.pt"
+    tactical_agent: "models/tactical_agent_test.pt"
+    arbitrageur_agent: "models/arbitrageur_agent_test.pt"
+  load_on_startup: false  # Disabled for data pipeline testing
+
+# Testing Configuration
+testing:
+  tick_generation:
+    frequency_ms: 100
+    price_volatility: 0.002
+    volume_distribution: exponential
+    gap_scenarios: true
+    extreme_conditions: true
+  
+  validation:
+    data_quality_threshold: 0.99
+    feature_completeness_threshold: 0.95
+    error_tolerance: 0.01
+    
+  performance:
+    stress_test_duration_minutes: 10
+    concurrent_streams: 5
+    memory_leak_detection: true
