@@ -212,3 +212,27 @@ class LiveDataHandler(AbstractDataHandler):
         except Exception as e:
             logger.error(f"Error in live data stream: {e}")
             raise
+
+
+def create_data_handler(kernel):
+    """Factory function to create appropriate data handler based on configuration.
+    
+    Args:
+        kernel: AlgoSpaceKernel instance containing configuration
+        
+    Returns:
+        DataHandler instance (BacktestDataHandler or LiveDataHandler)
+    """
+    # Get data configuration from kernel config dict
+    data_config = kernel.config.get('data_handler', {})
+    handler_type = data_config.get('type', 'backtest')
+    
+    # Create event bus reference
+    event_bus = kernel.event_bus
+    
+    if handler_type == 'backtest':
+        return BacktestDataHandler(data_config, event_bus)
+    elif handler_type in ['rithmic', 'ib']:
+        return LiveDataHandler(data_config, event_bus)
+    else:
+        raise ValueError(f"Unknown data handler type: {handler_type}")
