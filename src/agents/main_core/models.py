@@ -15,6 +15,43 @@ import numpy as np
 from dataclasses import dataclass
 
 
+from .regime_embedder import RegimeEmbedder as AdvancedRegimeEmbedder
+from .regime_uncertainty import RegimeUncertaintyCalibrator
+from .regime_patterns import RegimePatternBank
+from .shared_policy import SharedPolicy as AdvancedSharedPolicy
+from .mc_dropout_policy import MCDropoutConsensus
+from .multi_objective_value import MultiObjectiveValueFunction
+
+class MCDropoutMixin:
+    """Mixin to add MC Dropout support to embedders."""
+    
+    def enable_mc_dropout(self):
+        """Enable dropout for MC sampling."""
+        self.train()
+        # Keep only dropout layers active
+        for module in self.modules():
+            if not isinstance(module, nn.Dropout):
+                module.eval()
+                
+    def disable_mc_dropout(self):
+        """Disable MC dropout."""
+        self.eval()
+        
+    def get_dropout_layers(self) -> List[nn.Dropout]:
+        """Get all dropout layers for analysis."""
+        dropout_layers = []
+        for module in self.modules():
+            if isinstance(module, nn.Dropout):
+                dropout_layers.append(module)
+        return dropout_layers
+        
+    def set_dropout_rate(self, rate: float):
+        """Dynamically adjust dropout rate."""
+        for module in self.modules():
+            if isinstance(module, nn.Dropout):
+                module.p = rate
+
+
 class PositionalEncoding(nn.Module):
     """Sinusoidal positional encoding for transformer."""
     
@@ -86,7 +123,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
-class StructureEmbedder(nn.Module):
+class StructureEmbedder(nn.Module, MCDropoutMixin):
     """
     Transformer-based embedder for processing 30-minute market structure data.
     
@@ -177,7 +214,8 @@ class StructureEmbedder(nn.Module):
     def forward(
         self, 
         x: torch.Tensor,
-        return_attention_weights: bool = False
+        return_attention_weights: bool = False,
+        return_features: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through structure embedder.
@@ -185,6 +223,7 @@ class StructureEmbedder(nn.Module):
         Args:
             x: Input tensor [batch_size, seq_len=48, features=8]
             return_attention_weights: Whether to return attention weights
+            return_features: Whether to return intermediate features for analysis
             
         Returns:
             Tuple of (mu, sigma) where:
@@ -217,7 +256,15 @@ class StructureEmbedder(nn.Module):
         mu = self.mu_head(pooled)
         sigma = self.sigma_head(pooled) + 1e-6  # Prevent zero uncertainty
         
-        if return_attention_weights:
+        if return_features:
+            # Return intermediate features for uncertainty analysis
+            features = {
+                'attention_weights': attention_weights.squeeze(-1).transpose(0, 1),
+                'transformer_states': x.transpose(0, 1),  # Back to [batch, seq, d_model]
+                'pooled_features': pooled
+            }
+            return mu, sigma, features
+        elif return_attention_weights:
             return mu, sigma, attention_weights.squeeze(-1).transpose(0, 1)
         
         return mu, sigma
@@ -381,7 +428,7 @@ class MultiScaleAttention(nn.Module):
         return output
 
 
-class TacticalEmbedder(nn.Module):
+class TacticalEmbedder(nn.Module, MCDropoutMixin):
     """
     Advanced Bidirectional LSTM embedder for 5-minute tactical momentum.
     
@@ -779,12 +826,10 @@ class MomentumAnalyzer:
         return attention_std < 0.15  # Low variability threshold
 
 
-class RegimeEmbedder(nn.Module):
+class RegimeEmbedder(nn.Module, MCDropoutMixin):
     """
-    Embedder for processing regime context vector.
-    
-    Projects the 8-dimensional regime vector from RDE into
-    a higher-dimensional embedding space.
+    Advanced Regime Embedder with temporal memory, attention analysis,
+    and pattern recognition. Provides uncertainty-calibrated embeddings.
     
     Args:
         input_dim: Input vector dimension (default: 8)
@@ -796,33 +841,83 @@ class RegimeEmbedder(nn.Module):
         self,
         input_dim: int = 8,
         output_dim: int = 16,
-        hidden_dim: int = 32
+        hidden_dim: int = 32,
+        **kwargs
     ):
         super().__init__()
         
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
+        # Configuration
+        config = {
+            'regime_dim': input_dim,
+            'output_dim': output_dim,
+            'hidden_dim': hidden_dim,
+            'buffer_size': kwargs.get('buffer_size', 20),
+            'n_heads': kwargs.get('n_heads', 4),
+            'dropout': kwargs.get('dropout', 0.1),
+            'n_patterns': kwargs.get('n_patterns', 16)
+        }
+        
+        # Core embedder
+        self.embedder = AdvancedRegimeEmbedder(config)
+        
+        # Uncertainty calibration
+        self.calibrator = RegimeUncertaintyCalibrator(config)
+        
+        # Pattern bank
+        self.pattern_bank = RegimePatternBank(config)
+        
+        # Feature fusion for final embedding
+        self.final_projection = nn.Sequential(
+            nn.Linear(output_dim + 16, output_dim),  # embedder + patterns
             nn.LayerNorm(output_dim),
             nn.ReLU()
         )
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through regime embedder.
+        Forward pass with advanced regime embedding.
         
         Args:
-            x: Input regime vector [batch_size, 8]
+            x: Regime vector [batch_size, 8]
             
         Returns:
             Embedded features [batch_size, output_dim]
         """
-        return self.mlp(x)
+        # Get base embedding with uncertainty
+        embedding = self.embedder(x, return_attention=False)
+        
+        # Get pattern features
+        pattern_features, pattern_info = self.pattern_bank(x)
+        
+        # Calibrate uncertainty
+        calibrated_std = self.calibrator.calibrate_uncertainty(embedding.std)
+        
+        # Sample from distribution (during training)
+        if self.training:
+            eps = torch.randn_like(embedding.mean)
+            features = embedding.mean + eps * calibrated_std
+        else:
+            features = embedding.mean
+            
+        # Combine with pattern features
+        combined = torch.cat([features, pattern_features], dim=-1)
+        final_embedding = self.final_projection(combined)
+        
+        return final_embedding
+        
+    def get_embedding_with_uncertainty(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get embedding with calibrated uncertainty estimates."""
+        embedding = self.embedder(x, return_attention=True)
+        calibrated_std = self.calibrator.calibrate_uncertainty(embedding.std)
+        
+        pattern_features, _ = self.pattern_bank(x)
+        combined = torch.cat([embedding.mean, pattern_features], dim=-1)
+        final_mean = self.final_projection(combined)
+        
+        return final_mean, calibrated_std
 
 
-class LVNEmbedder(nn.Module):
+class LVNEmbedder(nn.Module, MCDropoutMixin):
     """
     Embedder for processing LVN (Low Volume Node) context.
     
@@ -865,61 +960,47 @@ class LVNEmbedder(nn.Module):
         return self.mlp(x)
 
 
-class SharedPolicy(nn.Module):
+class SharedPolicyNetwork(nn.Module):
     """
-    Unified shared policy network (MAPPO Actor) for Gate 1.
+    Advanced shared policy network (MAPPO Actor) for Gate 1.
     
-    This is the main decision-making network that processes the
-    concatenated embeddings from all sources and outputs action
-    probabilities for initiating the trade process.
+    This state-of-the-art implementation features multi-head reasoning,
+    cross-feature attention, temporal consistency, and calibrated action
+    distributions for sophisticated trading decisions.
     
     Args:
-        input_dim: Dimension of unified state vector (default: 144)
-        hidden_dims: List of hidden layer dimensions
+        input_dim: Dimension of unified state vector (default: 136)
+        hidden_dims: List of hidden layer dimensions (ignored, uses advanced config)
         dropout_rate: Dropout probability for MC Dropout (default: 0.2)
         action_dim: Number of actions (default: 2)
     """
     
     def __init__(
         self,
-        input_dim: int = 144,  # 64 + 32 + 16 + 32 (updated dimensions)
+        input_dim: int = 136,  # 64 + 48 + 16 + 8 = structure + tactical + regime + lvn
         hidden_dims: List[int] = None,
         dropout_rate: float = 0.2,
-        action_dim: int = 2  # ['Initiate_Trade_Process', 'Do_Nothing']
+        action_dim: int = 2,  # ['Initiate_Trade_Process', 'Do_Nothing']
+        **kwargs
     ):
         super().__init__()
         
-        if hidden_dims is None:
-            hidden_dims = [256, 128, 64]
-            
+        # Configuration for advanced policy
+        config = {
+            'input_dim': input_dim,
+            'hidden_dim': 256,
+            'action_dim': action_dim,
+            'dropout_rate': dropout_rate,
+            'use_temporal_consistency': kwargs.get('use_temporal_consistency', True)
+        }
+        
+        # Use advanced implementation
+        self.policy = AdvancedSharedPolicy(config)
+        
+        # Store config
         self.input_dim = input_dim
         self.action_dim = action_dim
         self.dropout_rate = dropout_rate
-        
-        # Build MLP layers
-        layers = []
-        prev_dim = input_dim
-        
-        for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(prev_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate)  # Critical for MC Dropout
-            ])
-            prev_dim = hidden_dim
-        
-        # Final output layer
-        layers.append(nn.Linear(prev_dim, action_dim))
-        
-        self.policy_network = nn.Sequential(*layers)
-        
-        # Value head for MAPPO training (not used in inference)
-        self.value_head = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 1)
-        )
         
     def forward(
         self, 
@@ -939,21 +1020,19 @@ class SharedPolicy(nn.Module):
                 - action_probs: Softmax probabilities [batch_size, 2]
                 - value: Value estimate (if requested)
         """
-        # Get action logits
-        action_logits = self.policy_network(unified_state)
-        action_probs = F.softmax(action_logits, dim=-1)
+        # Use advanced policy
+        output = self.policy(unified_state, return_value=return_value, return_features=False)
         
-        output = {
-            'action_logits': action_logits,
-            'action_probs': action_probs
+        # Convert to expected format
+        result = {
+            'action_logits': output.action_logits,
+            'action_probs': output.action_probs
         }
         
-        # Optionally compute value
-        if return_value:
-            value = self.value_head(unified_state)
-            output['value'] = value.squeeze(-1)
+        if return_value and output.state_value is not None:
+            result['value'] = output.state_value.squeeze(-1)
             
-        return output
+        return result
     
     def enable_mc_dropout(self):
         """Enable dropout for MC Dropout evaluation."""
@@ -962,6 +1041,14 @@ class SharedPolicy(nn.Module):
     def disable_mc_dropout(self):
         """Disable dropout for deterministic evaluation."""
         self.eval()  # This disables dropout
+        
+    def get_action(self, unified_state: torch.Tensor, deterministic: bool = False) -> Tuple[int, float]:
+        """Get action using advanced policy."""
+        return self.policy.get_action(unified_state, deterministic)
+        
+    def evaluate_actions(self, states: torch.Tensor, actions: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Evaluate actions for MAPPO training."""
+        return self.policy.evaluate_actions(states, actions)
 
 
 class DecisionGate(nn.Module):
@@ -1192,3 +1279,7 @@ class UncertaintyAggregator:
         dynamic_threshold = base_threshold + 0.2 * uncertainty_factor
         
         return dynamic_threshold
+
+
+# Backward compatibility alias
+SharedPolicy = SharedPolicyNetwork

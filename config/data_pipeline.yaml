@@ -1,0 +1,161 @@
+# Production configuration for data pipeline
+
+data_pipeline:
+  # Data Handler Configuration
+  data_handler:
+    # Symbol to trade
+    symbol: "ES"  # E-mini S&P 500
+    
+    # Mode: backtest or live
+    mode: "live"  # Switch to "backtest" for testing
+    
+    # Tick validation
+    validation:
+      max_price_change: 0.05  # 5% max spike
+      min_price: 1.0
+      max_price: 10000.0
+      max_volume: 100000
+      
+    # Rate limiting
+    rate_limit:
+      ticks_per_second: 100
+      window: 1.0
+      
+    # Backtest configuration
+    backtest:
+      csv_path: "data/historical/ES_2024.csv"
+      replay_speed: 0  # 0 = as fast as possible
+      start_date: null  # null = from beginning
+      end_date: null    # null = to end
+      timestamp_column: "timestamp"
+      price_column: "price"
+      volume_column: "volume"
+      delimiter: ","
+      compression: "infer"  # auto-detect
+      
+    # Live configuration
+    live:
+      rithmic:
+        host: "md-sim.rithmic.com"  # Simulation for testing
+        port: 443
+        username: "${RITHMIC_USER}"
+        password: "${RITHMIC_PASS}"
+        exchange: "CME"
+        symbol_code: "ES"
+        
+      # Connection management
+      max_reconnect_attempts: 10
+      reconnect_delay: 5.0
+      heartbeat_interval: 30.0
+      
+      # Market hours (Chicago time)
+      market_hours:
+        timezone: "America/Chicago"
+        schedule:
+          sunday:
+            open: "18:00"
+            close: "23:59"
+          monday:
+            open: "00:00"
+            close: "23:59"
+          tuesday:
+            open: "00:00"
+            close: "23:59"
+          wednesday:
+            open: "00:00"
+            close: "23:59"
+          thursday:
+            open: "00:00"
+            close: "23:59"
+          friday:
+            open: "00:00"
+            close: "17:00"
+            
+  # Bar Generator Configuration
+  bar_generator:
+    # Symbol must match data handler
+    symbol: "ES"
+    
+    # Timeframes to generate (minutes)
+    timeframes: [5, 30]
+    
+    # Gap handling
+    gap_fill:
+      enabled: true
+      method: "forward_fill"  # Only method for v1.0
+      
+    # Performance tuning
+    performance:
+      boundary_cache_size: 1000
+      tick_buffer_size: 10000
+      
+  # Data Quality Monitoring
+  monitoring:
+    enabled: true
+    
+    # Quality thresholds
+    thresholds:
+      min_tick_rate: 0.1  # ticks/second
+      max_anomaly_rate: 0.01  # 1%
+      max_gap_frequency: 0.05  # 5%
+      
+    # Alerting
+    alerts:
+      low_tick_rate: true
+      high_anomaly_rate: true
+      connection_loss: true
+      
+  # Data Recording
+  recording:
+    enabled: false  # Enable for data collection
+    output_dir: "data/recordings"
+    buffer_size: 10000
+    
+    # Compression
+    compression:
+      ticks: "snappy"
+      bars: "snappy"
+      
+  # Mock Data Generation (for testing)
+  mock_data:
+    base_price: 4500.0  # ES typical price
+    volatility: 0.001   # 0.1% per tick
+    trend: 0.00001      # Slight upward drift
+    mean_reversion: 0.1
+    base_volume: 500
+    volume_volatility: 0.5
+    tick_interval: 0.5  # seconds
+    
+  # Logging
+  logging:
+    level: "INFO"
+    
+    # Component-specific levels
+    components:
+      data_handler: "INFO"
+      bar_generator: "INFO"
+      tick_validator: "WARNING"
+      
+    # Performance logging
+    performance:
+      log_slow_ticks: true
+      slow_tick_threshold_us: 100
+      log_every_n_ticks: 10000
+      
+  # Metrics
+  metrics:
+    enabled: true
+    
+    # Prometheus endpoint
+    prometheus:
+      enabled: true
+      port: 9090
+      
+    # Metrics to track
+    track:
+      - ticks_processed
+      - ticks_rejected
+      - bars_emitted
+      - gaps_filled
+      - processing_latency
+      - memory_usage

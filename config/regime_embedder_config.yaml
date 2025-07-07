@@ -1,0 +1,49 @@
+# File: config/regime_embedder_config.yaml
+# Production configuration for Regime Embedder
+
+regime_embedder:
+  # Core dimensions
+  regime_dim: 8          # Input from RDE
+  output_dim: 16         # Output embedding dimension
+  hidden_dim: 32         # Hidden layer dimension
+  
+  # Temporal memory
+  buffer_size: 20        # Number of historical regimes to maintain
+  sequence_length: 10    # Sequence length for LSTM
+  
+  # Attention mechanism
+  n_heads: 4             # Number of attention heads
+  attention_dropout: 0.1
+  
+  # Pattern bank
+  n_patterns: 16         # Number of regime patterns
+  pattern_similarity_threshold: 0.7
+  pattern_update_frequency: 100  # Update every N regimes
+  
+  # Uncertainty calibration
+  calibration_window: 1000
+  calibration_update_frequency: 50
+  min_uncertainty: 0.001
+  max_uncertainty: 2.0
+  
+  # Training
+  learning_rate: 1e-4
+  weight_decay: 1e-5
+  dropout: 0.1
+  
+  # Performance
+  use_amp: true          # Automatic mixed precision
+  compile_model: true    # torch.compile for optimization
+  
+  # Monitoring
+  log_attention_weights: false  # Can be expensive
+  log_component_importance: true
+  log_transition_scores: true
+  metrics_window: 100
+  
+  # Production safety
+  max_gradient_norm: 1.0
+  anomaly_detection:
+    enabled: true
+    max_regime_magnitude: 5.0
+    min_regime_magnitude: 0.01

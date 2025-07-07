@@ -3,6 +3,7 @@
 The System Kernel & Orchestration class. This is the master conductor.
 """
 import logging
+import os
 from typing import Dict, Any, Optional
 from pathlib import Path
 
@@ -240,8 +241,8 @@ class AlgoSpaceKernel:
         
         # Main MARL Core
         if MainMARLCoreComponent:
-            # Get main core configuration
-            main_core_config = self.config.get('main_core', {})
+            # Get main MARL core configuration (check both keys for compatibility)
+            main_core_config = self.config.get('main_marl_core', self.config.get('main_core', {}))
             self.components['main_marl_core'] = MainMARLCoreComponent(main_core_config, self.components)
             logger.info("MainMARLCoreComponent instantiated")
         
@@ -323,6 +324,18 @@ class AlgoSpaceKernel:
                 try:
                     self.components['m_rms'].load_model(model_path)
                     logger.info(f"M-RMS model loaded from: {model_path}")
+                    
+                    # Load communication weights if available
+                    comm_path = model_path.replace('.pth', '_comm.pth')
+                    if os.path.exists(comm_path) and hasattr(self.components['m_rms'], 'communication_lstm'):
+                        try:
+                            import torch
+                            comm_state = torch.load(comm_path, map_location=self.components['m_rms'].device)
+                            self.components['m_rms'].communication_lstm.load_state_dict(comm_state)
+                            logger.info(f"MRMS Communication weights loaded from {comm_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not load communication weights: {e}")
+                            
                 except Exception as e:
                     logger.error(f"Failed to load M-RMS model: {e}")
         

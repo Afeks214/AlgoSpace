@@ -1,0 +1,132 @@
+# File: config/decision_gate_config.yaml
+# Production configuration for DecisionGate Transformer
+
+decision_gate:
+  # Transformer architecture
+  transformer:
+    state_dim: 512
+    risk_dim: 128
+    hidden_dim: 384
+    n_layers: 4
+    n_heads: 8
+    dropout_rate: 0.1
+    
+    # Positional encoding
+    positional_encoding:
+      type: "learnable"
+      n_positions: 5  # structure, tactical, regime, lvn, risk
+      
+    # Attention configuration
+    attention:
+      use_hierarchical: true
+      use_factorized: true
+      use_causal: false
+      factor_count: 16
+      
+  # Multi-factor validation
+  validation:
+    risk_factors:
+      - portfolio_heat
+      - correlation
+      - concentration
+      - leverage
+    market_factors:
+      - volatility
+      - liquidity
+      - regime_alignment
+      - momentum
+    technical_factors:
+      - entry_quality
+      - signal_strength
+      - pattern_clarity
+      - timing
+      
+    # Validation thresholds
+    min_validation_score: 0.6
+    critical_factor_threshold: 0.5
+    
+  # Dynamic thresholds
+  threshold_learning:
+    # Base thresholds
+    base_thresholds:
+      execution: 0.65
+      validation: 0.60
+      risk: 0.70
+      
+    # Learning parameters
+    learning_rate: 0.01
+    momentum: 0.9
+    decay: 0.995
+    
+    # Adjustment limits
+    max_adjustment: 0.15
+    min_adjustment: -0.15
+    
+    # Regime adjustments
+    regime_adjustments:
+      trending:
+        execution: -0.05
+        validation: -0.03
+        risk: 0.0
+      volatile:
+        execution: 0.08
+        validation: 0.05
+        risk: 0.10
+      ranging:
+        execution: 0.03
+        validation: 0.02
+        risk: 0.05
+      transitioning:
+        execution: 0.10
+        validation: 0.08
+        risk: 0.15
+        
+  # Safety mechanisms
+  safety:
+    max_position_size: 10000
+    max_portfolio_heat: 0.20
+    max_correlation: 0.70
+    min_risk_reward: 1.5
+    max_daily_trades: 10
+    
+    # Circuit breakers
+    circuit_breakers:
+      max_consecutive_losses: 3
+      max_daily_loss: 0.05  # 5% of capital
+      max_drawdown: 0.15    # 15% drawdown
+      
+  # Interpretability
+  interpretability:
+    save_attention_weights: true
+    save_decision_paths: true
+    generate_reports: true
+    report_frequency: 100  # Every N decisions
+    
+  # Performance optimization
+  optimization:
+    use_jit_compilation: true
+    use_mixed_precision: false  # FP16 for speed
+    batch_decisions: false      # Process one at a time
+    cache_embeddings: true
+    
+  # Monitoring
+  monitoring:
+    log_all_decisions: true
+    log_level: "INFO"
+    metrics_window: 1000
+    alert_thresholds:
+      low_confidence: 0.5
+      high_rejection_rate: 0.9
+      low_validation_score: 0.4
+      
+  # Model management
+  model:
+    checkpoint_frequency: 1000  # Save every N decisions
+    keep_n_checkpoints: 5
+    model_path: "models/decision_gate/"
+    
+  # Integration
+  integration:
+    timeout_ms: 10  # Max decision time
+    fallback_decision: "REJECT"
+    retry_on_error: false

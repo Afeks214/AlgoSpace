@@ -219,6 +219,32 @@ rde:
   device: cpu     # CPU for production stability
   sequence_length: 24  # Expected sequence length (12 hours)
 
+# RDE Communication Layer configuration
+rde_communication:
+  input_dim: 8       # RDE output dimension
+  hidden_dim: 32     # LSTM hidden dimension
+  output_dim: 16     # Final embedding dimension
+  num_layers: 2      # Number of LSTM layers
+  device: cpu        # CPU for production stability
+  
+  # Training configuration
+  learning_rate: 1e-4
+  batch_size: 64
+  sequence_length: 32
+  n_epochs: 100
+  
+  # Loss weights
+  loss_weights:
+    temporal_consistency: 0.3
+    uncertainty_calibration: 0.4
+    regime_prediction: 0.3
+    contrastive: 0.1
+    
+  # Early stopping
+  early_stopping:
+    patience: 20
+    min_delta: 0.001
+
 # M-RMS (Multi-Agent Risk Management Subsystem) configuration
 m_rms:
   synergy_dim: 30         # Synergy feature vector dimension
@@ -231,6 +257,40 @@ m_rms:
   sl_agent_hidden: 64
   pt_agent_hidden: 64
   dropout_rate: 0.2
+  max_outcome_history: 20
+  # Communication layer configuration
+  communication:
+    risk_vector_dim: 4        # Input from MRMS
+    outcome_dim: 3            # Trade outcome vector
+    hidden_dim: 16            # LSTM hidden size
+    output_dim: 8             # Risk embedding dimension
+    memory_size: 20           # Recent trades to remember
+
+# MRMS Communication Layer configuration
+mrms_communication:
+  risk_vector_dim: 4        # Input from MRMS
+  outcome_dim: 3            # Trade outcome vector
+  hidden_dim: 16            # LSTM hidden size
+  output_dim: 8             # Risk embedding dimension
+  memory_size: 20           # Recent trades to remember
+  
+  # Training configuration
+  learning_rate: 1e-4
+  batch_size: 32
+  sequence_length: 10
+  
+  # Loss weights
+  loss_weights:
+    risk: 0.3
+    outcome: 0.3
+    uncertainty: 0.2
+    temporal: 0.2
+    
+  # Adaptation parameters
+  risk_adaptation:
+    max_reduction: 0.5      # Max position size reduction
+    uncertainty_threshold: 0.3
+    streak_penalty: 0.1     # Per consecutive loss
 
 # Main MARL Core configuration - Advanced Shared Policy Implementation
 main_marl_core:
@@ -318,6 +378,7 @@ main_marl_core:
     structure_embedder: "./models/structure_embedder.pth"
     tactical_embedder: "./models/tactical_embedder.pth"
     regime_embedder: "./models/regime_embedder.pth"
+    rde_communication: "./models/rde_communication.pth"
     lvn_embedder: "./models/lvn_embedder.pth"
     shared_policy: "./models/shared_policy.pth"
     decision_gate: "./models/decision_gate.pth"

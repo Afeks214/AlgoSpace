@@ -1,0 +1,74 @@
+# File: config/shared_policy_config.yaml
+# Production configuration for Shared Policy Network
+
+shared_policy:
+  # Architecture
+  input_dim: 136         # 64 + 48 + 16 + 8 (embedder outputs)
+  hidden_dim: 256
+  action_dim: 2          # ['Initiate_Trade', 'Do_Nothing']
+  dropout_rate: 0.2      # Critical for MC Dropout
+  
+  # Components
+  use_temporal_consistency: true
+  temporal_memory_size: 20
+  
+  # Cross-attention
+  cross_attention:
+    n_heads: 4
+    dropout: 0.1
+    
+  # Multi-head reasoning
+  reasoning_heads:
+    - structure
+    - timing
+    - risk
+    - regime
+    
+  # Action distribution
+  temperature_range:
+    min: 0.5
+    max: 2.0
+    
+  # MC Dropout
+  mc_dropout:
+    n_samples: 50
+    confidence_threshold: 0.80
+    uncertainty_threshold: 0.3
+    min_agreement: 0.75
+    use_adaptive_sampling: true
+    min_adaptive_samples: 20
+    max_adaptive_samples: 100
+    
+  # Multi-objective
+  objectives:
+    return:
+      weight: 0.4
+    risk_adjusted:
+      weight: 0.3
+    timing:
+      weight: 0.2
+    regime:
+      weight: 0.1
+      
+  # Training (MAPPO)
+  training:
+    learning_rate: 3e-4
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_param: 0.2
+    value_loss_coef: 0.5
+    entropy_coef: 0.01
+    max_grad_norm: 0.5
+    ppo_epochs: 4
+    mini_batch_size: 64
+    buffer_size: 2048
+    
+  # Performance
+  compile_model: true
+  use_amp: true
+  
+  # Monitoring
+  log_reasoning_scores: true
+  log_attention_weights: false
+  log_temperature: true
+  metrics_window: 100

@@ -167,6 +167,20 @@ class MainMARLCoreComponent:
             else:
                 logger.warning(f"No model path found for {name}")
         
+        # Load RDE Communication LSTM if available
+        if self.rde_communication is not None:
+            rde_comm_path = model_paths.get('rde_communication')
+            if rde_comm_path and Path(rde_comm_path).exists():
+                try:
+                    checkpoint = torch.load(rde_comm_path, map_location=self.device)
+                    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                        self.rde_communication.load_state_dict(checkpoint['state_dict'])
+                    else:
+                        self.rde_communication.load_state_dict(checkpoint)
+                    logger.info(f"Loaded RDE communication LSTM from {rde_comm_path}")
+                except Exception as e:
+                    logger.error(f"Failed to load RDE communication LSTM: {e}")
+        
         # Load shared policy
         policy_path = model_paths.get('shared_policy')
         if policy_path and Path(policy_path).exists():
@@ -325,24 +339,55 @@ class MainMARLCoreComponent:
                 structure_mu, structure_sigma = self.structure_embedder(structure_tensor)
                 # Tactical embedder now returns (mu, sigma)
                 tactical_mu, tactical_sigma = self.tactical_embedder(tactical_tensor)
-                regime_embedded = self.regime_embedder(regime_tensor)
+                
+                # Process regime through communication LSTM if available
+                if self.rde_communication is not None:
+                    # Process raw regime vector through communication LSTM
+                    regime_mu, regime_sigma = self.rde_communication(regime_tensor)
+                    regime_embedded = regime_mu  # Use mu as the embedding
+                else:
+                    # Fallback to standard regime embedder
+                    regime_embedded = self.regime_embedder(regime_tensor)
+                    regime_sigma = torch.ones_like(regime_embedded) * 0.1
+                
                 lvn_embedded = self.lvn_embedder(lvn_tensor)
             
             # Store uncertainties for decision making
             self.current_uncertainties = {
                 'structure': structure_sigma,
                 'tactical': tactical_sigma,
-                'regime': torch.ones_like(regime_embedded) * 0.1,      # Placeholder
-                'lvn': torch.ones_like(lvn_embedded) * 0.1             # Placeholder
+                'regime': regime_sigma if self.rde_communication is not None else torch.ones_like(regime_embedded) * 0.1,
+                'lvn': torch.ones_like(lvn_embedded) * 0.1
             }
             
-            # Concatenate all embeddings (use mean for structure and tactical)
-            unified_state = torch.cat([
-                structure_mu,
-                tactical_mu,
-                regime_embedded,
-                lvn_embedded
-            ], dim=-1)
+            # Check if we have risk context from MRMS communication layer
+            embeddings = [structure_mu, tactical_mu, regime_embedded, lvn_embedded]
+            
+            if hasattr(self, 'risk_context') and self.risk_context is not None:
+                # We have risk memory from MRMS communication layer
+                risk_embedding = torch.tensor(
+                    self.risk_context['risk_embedding'], 
+                    dtype=torch.float32
+                ).to(self.device)
+                
+                if risk_embedding.dim() == 1:
+                    risk_embedding = risk_embedding.unsqueeze(0)
+                
+                embeddings.append(risk_embedding)
+                
+                # Update uncertainties with risk uncertainty
+                risk_uncertainty = torch.tensor(
+                    self.risk_context['risk_uncertainty'],
+                    dtype=torch.float32
+                ).to(self.device)
+                
+                if risk_uncertainty.dim() == 1:
+                    risk_uncertainty = risk_uncertainty.unsqueeze(0)
+                    
+                self.current_uncertainties['risk'] = risk_uncertainty
+            
+            # Concatenate all embeddings
+            unified_state = torch.cat(embeddings, dim=-1)
             
             return unified_state
             
@@ -502,6 +547,13 @@ class MainMARLCoreComponent:
             
             risk_proposal = m_rms.generate_risk_proposal(trade_qualification)
             
+            # Store risk context if available from MRMS communication layer
+            if 'risk_embedding' in risk_proposal and 'risk_uncertainty' in risk_proposal:
+                self.risk_context = {
+                    'risk_embedding': risk_proposal['risk_embedding'],
+                    'risk_uncertainty': risk_proposal['risk_uncertainty']
+                }
+            
             # Step 6: Vectorize risk proposal
             risk_vector = self._vectorize_risk_proposal(risk_proposal)
             risk_tensor = torch.tensor(
@@ -648,7 +700,7 @@ class MainMARLCoreComponent:
         features.append(0.5)  # Placeholder for 10th feature
         
         # Timing features (3 features)
-        metadata = synergy_event.get('metadata', {)}
+        metadata = synergy_event.get('metadata', {})
         features.extend([
             metadata.get('bars_to_complete', 5) / 10.0,
             1.0,  # Placeholder

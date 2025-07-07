@@ -1,0 +1,129 @@
+# MC Dropout Consensus Mechanism - Production Configuration
+# This configuration file contains all settings for the MC Dropout
+# consensus system in AlgoSpace's unified intelligence architecture
+
+mc_dropout_consensus:
+  # Core parameters
+  n_samples: 50  # Number of forward passes
+  confidence_threshold: 0.65  # Base confidence threshold
+  temperature: 1.0  # Temperature for softmax
+  
+  # GPU optimization
+  gpu_optimization: true
+  max_batch_size: 25  # For parallel sampling
+  use_cuda_kernels: true  # Custom CUDA kernels
+  
+  # Calibration
+  calibration:
+    method: "ensemble"  # temperature, platt, isotonic, beta, histogram, ensemble
+    ensemble_weights:
+      temperature: 0.3
+      platt: 0.2
+      isotonic: 0.3
+      beta: 0.1
+      histogram: 0.1
+    update_frequency: 100  # Update every N decisions
+    min_samples_for_update: 500
+    
+  # Adaptive thresholds
+  adaptive_thresholds:
+    regime_adjustments:
+      trending: 0.0
+      volatile: 0.05
+      ranging: 0.03
+      transitioning: 0.08
+    risk_adjustments:
+      low: -0.02
+      medium: 0.0
+      high: 0.05
+      extreme: 0.10
+    uncertainty_adjustments:
+      low: 0.0
+      medium: 0.02
+      high: 0.05
+      
+  # Convergence detection
+  convergence:
+    min_samples_for_check: 20
+    stability_threshold: 0.95
+    r_hat_threshold: 1.1
+    early_stopping: true
+    
+  # Outlier detection
+  outlier_detection:
+    method: "mad"  # median absolute deviation
+    threshold: 3.5
+    remove_outliers: false  # Just flag, don't remove
+    
+  # Performance optimization
+  optimization:
+    adaptive_sampling: true
+    min_adaptive_samples: 10
+    max_adaptive_samples: 50
+    uncertainty_threshold_for_adaptive: 0.1
+    streaming_statistics: true
+    cache_size: 1000
+    
+  # Monitoring
+  monitoring:
+    enable_dashboard: true
+    dashboard_port: 8050
+    metrics_window: 1000
+    log_frequency: 100
+    save_history: true
+    history_path: "logs/mc_dropout_history.pkl"
+    
+  # Uncertainty decomposition
+  uncertainty:
+    calculate_aleatoric: true
+    calculate_epistemic: true
+    calculate_mutual_information: true
+    entropy_epsilon: 1e-8
+    
+  # Decision boundaries
+  decision_boundaries:
+    min_boundary_distance: -1.0
+    max_boundary_distance: 1.0
+    uncertainty_band: 0.1
+    
+  # Production safety
+  safety:
+    max_processing_time_ms: 200
+    fallback_on_timeout: true
+    fallback_decision: "reject"
+    log_timeouts: true
+    
+  # Model-specific settings
+  model_settings:
+    dropout_rate_adjustment: 1.0  # Multiplier for dropout rates
+    force_eval_mode_except_dropout: true
+    gradient_checkpointing: false  # Not needed for inference
+
+# Alert thresholds for monitoring
+alerts:
+  low_confidence_threshold: 0.5
+  high_uncertainty_threshold: 0.8
+  low_convergence_threshold: 0.7
+  high_outliers_threshold: 5
+  alert_cooldown_seconds: 60
+
+# Performance targets
+performance_targets:
+  max_latency_ms: 150  # Maximum latency for 50 samples
+  min_throughput_decisions_per_second: 10
+  max_memory_usage_mb: 100
+  
+# Logging configuration
+logging:
+  level: "INFO"
+  log_decisions: true
+  log_uncertainties: true
+  log_performance: true
+  log_alerts: true
+  
+# Development/debugging settings
+debug:
+  enable_profiling: false
+  save_sample_distributions: false
+  visualize_uncertainty: false
+  verbose_convergence: false

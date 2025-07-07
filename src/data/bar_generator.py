@@ -1,463 +1,489 @@
 """
-BarGenerator Component - Time-Series Aggregation Engine
+High-performance bar generator with dual timeframe support.
 
-This module transforms continuous tick data into discrete, time-based OHLCV bars.
-It simultaneously maintains two timeframes (5-minute and 30-minute) with temporal
-accuracy and gap handling as specified in the trading strategy.
-
-Based on Master PRD - BarGenerator Component v1.0
+This module provides production-grade bar generation with sub-100μs tick processing,
+precise temporal boundaries, and intelligent gap handling.
 """
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Any
-import structlog
+from typing import Dict, Optional, List, Tuple, Any
+from dataclasses import dataclass, field
+import logging
+import numpy as np
 
-from ..core.kernel import ComponentBase, AlgoSpaceKernel
-from ..core.events import EventType, Event, TickData, BarData
-from ..utils.logger import get_logger
-from .validators import BarValidator
+from src.core.events import EventType
+from src.data.event_adapter import EventBus, Event
+from src.data.data_handler import TickData
+from src.utils.time_utils import TimeUtils
+from src.utils.monitoring import MetricsCollector
+
+logger = logging.getLogger(__name__)
 
 
-class BarGenerator(ComponentBase):
+@dataclass
+class BarData:
     """
-    Time-Series Aggregation Engine
+    OHLCV bar data structure.
     
-    Transforms tick data into OHLCV bars for multiple timeframes.
-    Maintains temporal accuracy and handles data gaps gracefully.
-    
-    Key Features:
-    - Simultaneous 5-minute and 30-minute bar generation
-    - Forward-fill gap handling
-    - Sub-100 microsecond processing latency
-    - Deterministic output for backtesting consistency
+    Attributes:
+        timestamp: Bar open timestamp (floored to timeframe)
+        open: Opening price
+        high: Highest price
+        low: Lowest price
+        close: Closing price
+        volume: Total volume
+        tick_count: Number of ticks in bar
+        vwap: Volume-weighted average price
+        is_synthetic: True if forward-filled
+        timeframe: Bar timeframe in minutes
     """
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    tick_count: int
+    vwap: float
+    is_synthetic: bool = False
+    timeframe: int = 5
     
-    def __init__(self, name: str, kernel: AlgoSpaceKernel):
-        """
-        Initialize BarGenerator
-        
-        Args:
-            name: Component name
-            kernel: System kernel instance
-        """
-        super().__init__(name, kernel)
-        
-        # Configuration
-        self.timeframes = self.config.timeframes  # [5, 30] from config
-        self.symbol = self.config.primary_symbol
-        self.gap_fill = True  # Always enabled per PRD
-        
-        # Active bars being constructed
-        self.active_bars: Dict[int, Optional['WorkingBar']] = {
-            timeframe: None for timeframe in self.timeframes
+    def __post_init__(self):
+        """Validate bar data."""
+        if self.high < self.low:
+            raise ValueError(f"High {self.high} < Low {self.low}")
+        if not (self.low <= self.open <= self.high):
+            raise ValueError(f"Open {self.open} outside range [{self.low}, {self.high}]")
+        if not (self.low <= self.close <= self.high):
+            raise ValueError(f"Close {self.close} outside range [{self.low}, {self.high}]")
+            
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            'timestamp': self.timestamp.isoformat(),
+            'open': self.open,
+            'high': self.high,
+            'low': self.low,
+            'close': self.close,
+            'volume': self.volume,
+            'tick_count': self.tick_count,
+            'vwap': self.vwap,
+            'is_synthetic': self.is_synthetic,
+            'timeframe': self.timeframe
         }
-        
-        # Statistics
-        self.tick_count = 0
-        self.bars_emitted = {timeframe: 0 for timeframe in self.timeframes}
-        self.gaps_filled = {timeframe: 0 for timeframe in self.timeframes}
-        
-        # Last bar timestamps for gap detection
-        self.last_bar_timestamps: Dict[int, Optional[datetime]] = {
-            timeframe: None for timeframe in self.timeframes
-        }
-        
-        # Initialize bar validator
-        self.bar_validator = BarValidator()
-        
-        self.logger.info(f"BarGenerator initialized timeframes={self.timeframes} symbol={self.symbol} gap_fill={self.gap_fill}")
-    
-    async def start(self) -> None:
-        """Start the BarGenerator component"""
-        await super().start()
-        
-        # Subscribe to NEW_TICK events from DataHandler
-        self.subscribe_to_event(EventType.NEW_TICK, self._on_new_tick)
-        
-        self.logger.info("BarGenerator started - subscribed to NEW_TICK events")
-    
-    async def stop(self) -> None:
-        """Stop the BarGenerator component"""
-        # Finalize any incomplete bars
-        for timeframe in self.timeframes:
-            if self.active_bars[timeframe] is not None:
-                await self._finalize_bar(timeframe)
-        
-        # Log final statistics
-        total_bars = sum(self.bars_emitted.values())
-        total_gaps = sum(self.gaps_filled.values())
-        
-        self.logger.info(f"BarGenerator stopped total_ticks_processed={self.tick_count} total_bars_emitted={total_bars} total_gaps_filled={total_gaps} bars_by_timeframe={self.bars_emitted}")
-        
-        await super().stop()
-    
-    def _on_new_tick(self, event: Event) -> None:
-        """
-        Process incoming tick data
-        
-        Args:
-            event: NEW_TICK event containing TickData
-        """
-        tick_data: TickData = event.payload
-        
-        try:
-            # Validate tick data
-            if not self._validate_tick(tick_data):
-                return
-            
-            self.tick_count += 1
-            
-            # Process tick for each timeframe
-            for timeframe in self.timeframes:
-                self._process_tick_for_timeframe(tick_data, timeframe)
-            
-            # Debug logging (if enabled)
-            if self.tick_count % 10000 == 0:  # Every 10k ticks
-                self.logger.debug(f"Tick processing progress tick_count={self.tick_count} bars_emitted={self.bars_emitted}")
-        
-        except Exception as e:
-            self.logger.error(f"Error processing tick tick_data={tick_data} error={str(e)}")
-            # Continue processing to maintain system stability
-    
-    def _validate_tick(self, tick_data: TickData) -> bool:
-        """
-        Validate incoming tick data
-        
-        Args:
-            tick_data: Tick data to validate
-            
-        Returns:
-            True if valid, False otherwise
-        """
-        try:
-            # Check for required fields
-            if not tick_data.symbol or not tick_data.timestamp:
-                self.logger.warning(f"Invalid tick - missing symbol or timestamp tick={tick_data}")
-                return False
-            
-            # Check price validity
-            if tick_data.price <= 0:
-                self.logger.warning(f"Invalid tick - negative or zero price tick={tick_data}")
-                return False
-            
-            # Check volume validity (allow zero volume)
-            if tick_data.volume < 0:
-                self.logger.warning(f"Invalid tick - negative volume tick={tick_data}")
-                return False
-            
-            # Check symbol match
-            if tick_data.symbol != self.symbol:
-                self.logger.debug(f"Tick for different symbol ignored expected={self.symbol} received={tick_data.symbol}")
-                return False
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error validating tick tick={tick_data} error={str(e)}")
-            return False
-    
-    def _process_tick_for_timeframe(self, tick_data: TickData, timeframe: int) -> None:
-        """
-        Process tick for specific timeframe
-        
-        Args:
-            tick_data: Incoming tick data
-            timeframe: Timeframe in minutes (5 or 30)
-        """
-        # Calculate bar timestamp (floor to timeframe boundary)
-        bar_timestamp = self._floor_timestamp(tick_data.timestamp, timeframe)
-        
-        # Check if this tick belongs to a new bar
-        current_bar = self.active_bars[timeframe]
-        
-        if current_bar is None or bar_timestamp > current_bar.timestamp:
-            # New bar period detected
-            
-            # Finalize previous bar if exists
-            if current_bar is not None:
-                self._emit_bar(timeframe, current_bar)
-            
-            # Handle gaps (missing bars)
-            self._handle_gaps(timeframe, bar_timestamp)
-            
-            # Start new bar
-            self.active_bars[timeframe] = WorkingBar(
-                symbol=tick_data.symbol,
-                timestamp=bar_timestamp,
-                timeframe=timeframe
-            )
-            
-            current_bar = self.active_bars[timeframe]
-        
-        # Update the current bar with tick data
-        current_bar.update_with_tick(tick_data)
-    
-    def _floor_timestamp(self, timestamp: datetime, timeframe: int) -> datetime:
-        """
-        Floor timestamp to timeframe boundary
-        
-        Args:
-            timestamp: Original timestamp
-            timeframe: Timeframe in minutes
-            
-        Returns:
-            Floored timestamp
-            
-        Examples:
-            10:32:45 with 5min -> 10:30:00
-            10:34:59 with 5min -> 10:30:00
-            10:35:00 with 5min -> 10:35:00
-            10:32:45 with 30min -> 10:30:00
-            10:59:59 with 30min -> 10:30:00
-            11:00:00 with 30min -> 11:00:00
-        """
-        # Floor to minute boundary first
-        floored = timestamp.replace(second=0, microsecond=0)
-        
-        # Calculate minutes since epoch
-        minutes_since_midnight = floored.hour * 60 + floored.minute
-        
-        # Floor to timeframe boundary
-        floored_minutes = (minutes_since_midnight // timeframe) * timeframe
-        
-        # Convert back to timestamp
-        hours = floored_minutes // 60
-        minutes = floored_minutes % 60
-        
-        return floored.replace(hour=hours, minute=minutes)
-    
-    def _handle_gaps(self, timeframe: int, new_bar_timestamp: datetime) -> None:
-        """
-        Handle gaps in data by forward-filling missing bars
-        
-        Args:
-            timeframe: Timeframe in minutes
-            new_bar_timestamp: Timestamp of new bar
-        """
-        last_timestamp = self.last_bar_timestamps[timeframe]
-        
-        if last_timestamp is None:
-            # First bar for this timeframe
-            self.last_bar_timestamps[timeframe] = new_bar_timestamp
-            return
-        
-        # Calculate expected next bar timestamp
-        expected_next = last_timestamp + timedelta(minutes=timeframe)
-        
-        # Check for gaps
-        gap_count = 0
-        current_gap_timestamp = expected_next
-        
-        while current_gap_timestamp < new_bar_timestamp:
-            # Create synthetic bar (forward-fill)
-            gap_bar = self._create_gap_fill_bar(timeframe, current_gap_timestamp)
-            
-            if gap_bar:
-                self._emit_bar(timeframe, gap_bar, is_gap_fill=True)
-                gap_count += 1
-            
-            current_gap_timestamp += timedelta(minutes=timeframe)
-        
-        if gap_count > 0:
-            self.gaps_filled[timeframe] += gap_count
-            self.logger.info(f"Gap detected and filled",
-                           timeframe=timeframe,
-                           gap_count=gap_count,
-                           gap_start=expected_next.isoformat(),
-                           gap_end=new_bar_timestamp.isoformat())
-        
-        self.last_bar_timestamps[timeframe] = new_bar_timestamp
-    
-    def _create_gap_fill_bar(self, timeframe: int, timestamp: datetime) -> Optional['WorkingBar']:
-        """
-        Create a gap-fill bar using the last known price
-        
-        Args:
-            timeframe: Timeframe in minutes
-            timestamp: Gap bar timestamp
-            
-        Returns:
-            Gap-fill bar or None if no previous data
-        """
-        # Get last known price from the most recent active bar
-        last_price = None
-        
-        for tf in self.timeframes:
-            active_bar = self.active_bars[tf]
-            if active_bar and active_bar.close is not None:
-                last_price = active_bar.close
-                break
-        
-        if last_price is None:
-            # No previous price data available
-            self.logger.warning(f"Cannot create gap-fill bar - no previous price data timeframe={timeframe} timestamp={timestamp.isoformat()}")
-            return None
-        
-        # Create synthetic bar with OHLC = last_price, volume = 0
-        gap_bar = WorkingBar(
-            symbol=self.symbol,
-            timestamp=timestamp,
-            timeframe=timeframe
-        )
-        
-        # Set all OHLC values to last known price
-        gap_bar.open = last_price
-        gap_bar.high = last_price
-        gap_bar.low = last_price
-        gap_bar.close = last_price
-        gap_bar.volume = 0
-        gap_bar.is_gap_fill = True
-        
-        return gap_bar
-    
-    def _emit_bar(self, timeframe: int, working_bar: 'WorkingBar', is_gap_fill: bool = False) -> None:
-        """
-        Emit a completed bar as an event
-        
-        Args:
-            timeframe: Timeframe in minutes
-            working_bar: Completed working bar
-            is_gap_fill: Whether this is a gap-fill bar
-        """
-        try:
-            # Create BarData object
-            bar_data = BarData(
-                symbol=working_bar.symbol,
-                timestamp=working_bar.timestamp,
-                open=working_bar.open,
-                high=working_bar.high,
-                low=working_bar.low,
-                close=working_bar.close,
-                volume=working_bar.volume,
-                timeframe=timeframe
-            )
-            
-            # Validate bar before emitting
-            is_valid, validation_errors = self.bar_validator.validate_bar(bar_data)
-            
-            if not is_valid:
-                self.logger.error(f"Invalid bar data detected timeframe={timeframe} bar={bar_data} errors={validation_errors} is_gap_fill={is_gap_fill}")
-                # Skip emitting invalid bars
-                return
-            
-            # Determine event type based on timeframe
-            if timeframe == 5:
-                event_type = EventType.NEW_5MIN_BAR
-            elif timeframe == 30:
-                event_type = EventType.NEW_30MIN_BAR
-            else:
-                event_type = EventType.NEW_BAR  # Generic fallback
-            
-            # Publish valid bar
-            self.publish_event(event_type, bar_data)
-            
-            # Update statistics
-            self.bars_emitted[timeframe] += 1
-            
-            # Log bar completion
-            log_level = "debug" if is_gap_fill else "info"
-            getattr(self.logger, log_level)(
-                f"{timeframe}-min bar completed",
-                timestamp=working_bar.timestamp.isoformat(),
-                ohlcv=f"O:{working_bar.open:.2f} H:{working_bar.high:.2f} "
-                      f"L:{working_bar.low:.2f} C:{working_bar.close:.2f} V:{working_bar.volume}",
-                is_gap_fill=is_gap_fill
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Error emitting bar timeframe={timeframe} bar={working_bar} error={str(e)}")
-    
-    async def _finalize_bar(self, timeframe: int) -> None:
-        """
-        Finalize incomplete bar during shutdown
-        
-        Args:
-            timeframe: Timeframe to finalize
-        """
-        working_bar = self.active_bars[timeframe]
-        
-        if working_bar and working_bar.open is not None:
-            # Ensure bar has valid OHLC values
-            if working_bar.close is None:
-                working_bar.close = working_bar.open
-            if working_bar.high is None:
-                working_bar.high = working_bar.open
-            if working_bar.low is None:
-                working_bar.low = working_bar.open
-            
-            self._emit_bar(timeframe, working_bar)
-            self.logger.info(f"Finalized incomplete {timeframe}-min bar during shutdown")
-        
-        self.active_bars[timeframe] = None
 
 
 class WorkingBar:
     """
-    Internal representation of a bar being constructed
+    Efficiently maintains state of bar under construction.
     
-    Efficiently tracks OHLCV values as ticks arrive.
+    Optimized for minimal memory footprint and fast updates.
     """
     
-    def __init__(self, symbol: str, timestamp: datetime, timeframe: int):
-        """
-        Initialize working bar
-        
-        Args:
-            symbol: Trading symbol
-            timestamp: Bar start timestamp
-            timeframe: Timeframe in minutes
-        """
-        self.symbol = symbol
+    def __init__(self, timestamp: datetime, timeframe: int):
         self.timestamp = timestamp
         self.timeframe = timeframe
-        
-        # OHLCV values
         self.open: Optional[float] = None
         self.high: Optional[float] = None
         self.low: Optional[float] = None
         self.close: Optional[float] = None
         self.volume: int = 0
+        self.tick_count: int = 0
+        self.volume_sum: float = 0.0  # For VWAP calculation
         
-        # Metadata
-        self.tick_count = 0
-        self.is_gap_fill = False
-    
-    def update_with_tick(self, tick_data: TickData) -> None:
-        """
-        Update bar with new tick data
-        
-        Args:
-            tick_data: Incoming tick data
-        """
-        price = tick_data.price
-        volume = tick_data.volume
-        
-        # First tick of bar
+    def update(self, price: float, volume: int):
+        """Update bar with new tick."""
         if self.open is None:
+            # First tick
             self.open = price
             self.high = price
             self.low = price
         else:
-            # Update high and low
-            if price > self.high:
-                self.high = price
-            if price < self.low:
-                self.low = price
-        
-        # Always update close and volume
+            # Update high/low
+            self.high = max(self.high, price)
+            self.low = min(self.low, price)
+            
+        # Always update close
         self.close = price
+        
+        # Update volume and tick count
         self.volume += volume
         self.tick_count += 1
+        self.volume_sum += price * volume
+        
+    def to_bar(self, is_synthetic: bool = False) -> BarData:
+        """Convert to completed BarData."""
+        if self.open is None:
+            raise ValueError("Cannot create bar with no data")
+            
+        # Calculate VWAP
+        vwap = self.volume_sum / self.volume if self.volume > 0 else self.close
+        
+        return BarData(
+            timestamp=self.timestamp,
+            open=self.open,
+            high=self.high,
+            low=self.low,
+            close=self.close,
+            volume=self.volume,
+            tick_count=self.tick_count,
+            vwap=vwap,
+            is_synthetic=is_synthetic,
+            timeframe=self.timeframe
+        )
+
+
+class TimeframeBoundary:
+    """
+    Handles precise timeframe boundary calculations.
     
-    def __str__(self) -> str:
-        """String representation of working bar"""
-        return (f"WorkingBar({self.symbol} {self.timestamp.isoformat()} "
-                f"OHLCV: {self.open}/{self.high}/{self.low}/{self.close}/{self.volume})")
+    Ensures bars align exactly with clock boundaries.
+    """
     
-    def __repr__(self) -> str:
-        """Detailed representation of working bar"""
-        return (f"WorkingBar(symbol='{self.symbol}', timestamp={self.timestamp}, "
-                f"timeframe={self.timeframe}, open={self.open}, high={self.high}, "
-                f"low={self.low}, close={self.close}, volume={self.volume}, "
-                f"tick_count={self.tick_count})")
+    @staticmethod
+    def floor_timestamp(timestamp: datetime, timeframe_minutes: int) -> datetime:
+        """
+        Floor timestamp to timeframe boundary.
+        
+        Examples:
+            - 09:17:45 with 5-min → 09:15:00
+            - 09:17:45 with 30-min → 09:00:00
+        """
+        # Remove seconds and microseconds
+        timestamp = timestamp.replace(second=0, microsecond=0)
+        
+        # Floor to timeframe boundary
+        minutes = timestamp.minute
+        floored_minutes = (minutes // timeframe_minutes) * timeframe_minutes
+        
+        return timestamp.replace(minute=floored_minutes)
+        
+    @staticmethod
+    def next_boundary(timestamp: datetime, timeframe_minutes: int) -> datetime:
+        """Get next timeframe boundary."""
+        current_boundary = TimeframeBoundary.floor_timestamp(timestamp, timeframe_minutes)
+        return current_boundary + timedelta(minutes=timeframe_minutes)
+        
+    @staticmethod
+    def get_missing_boundaries(
+        last_timestamp: datetime,
+        current_timestamp: datetime,
+        timeframe_minutes: int
+    ) -> List[datetime]:
+        """
+        Get list of missing boundaries for gap filling.
+        
+        Returns boundaries that should have bars but don't.
+        """
+        missing = []
+        
+        # Start from next boundary after last timestamp
+        boundary = TimeframeBoundary.next_boundary(last_timestamp, timeframe_minutes)
+        current_boundary = TimeframeBoundary.floor_timestamp(current_timestamp, timeframe_minutes)
+        
+        # Collect all boundaries up to (but not including) current
+        while boundary < current_boundary:
+            missing.append(boundary)
+            boundary += timedelta(minutes=timeframe_minutes)
+            
+        return missing
+
+
+class BarGenerator:
+    """
+    High-performance bar generator with dual timeframe support.
+    
+    Features:
+    - Simultaneous 5-minute and 30-minute bar generation
+    - Forward-fill gap handling
+    - Sub-100μs tick processing
+    - Deterministic output
+    - Memory-efficient design
+    """
+    
+    def __init__(self, config: Dict[str, Any], event_bus: EventBus):
+        self.config = config
+        self.event_bus = event_bus
+        self.symbol = config['symbol']
+        
+        # Timeframes to generate
+        self.timeframes = config.get('timeframes', [5, 30])
+        
+        # Active bars
+        self.working_bars: Dict[int, Optional[WorkingBar]] = {
+            tf: None for tf in self.timeframes
+        }
+        
+        # Last completed bars (for gap filling)
+        self.last_bars: Dict[int, Optional[BarData]] = {
+            tf: None for tf in self.timeframes
+        }
+        
+        # Last tick timestamp (for gap detection)
+        self.last_tick_timestamp: Optional[datetime] = None
+        
+        # Metrics
+        self.metrics = MetricsCollector(f"bar_generator_{self.symbol}")
+        self.tick_count = 0
+        self.bars_emitted = {tf: 0 for tf in self.timeframes}
+        self.gaps_filled = {tf: 0 for tf in self.timeframes}
+        
+        # Performance optimization
+        self._boundary_cache = {}
+        
+        logger.info(
+            f"Initialized BarGenerator for {self.symbol} "
+            f"with timeframes: {self.timeframes}"
+        )
+        
+    async def start(self):
+        """Start the bar generator."""
+        logger.info(f"Starting BarGenerator for {self.symbol}")
+        
+        # Subscribe to tick events
+        await self.event_bus.subscribe(
+            EventType.NEW_TICK,
+            self._on_tick,
+            filter_func=lambda e: e.data['tick'].symbol == self.symbol
+        )
+        
+    async def stop(self):
+        """Stop the bar generator."""
+        logger.info(f"Stopping BarGenerator for {self.symbol}")
+        
+        # Finalize any incomplete bars
+        for timeframe in self.timeframes:
+            if self.working_bars[timeframe] is not None:
+                await self._complete_bar(timeframe, finalize=True)
+                
+        # Log statistics
+        total_bars = sum(self.bars_emitted.values())
+        total_gaps = sum(self.gaps_filled.values())
+        
+        logger.info(
+            f"BarGenerator statistics: "
+            f"{self.tick_count} ticks processed, "
+            f"{total_bars} bars emitted, "
+            f"{total_gaps} gaps filled"
+        )
+        
+    async def _on_tick(self, event: Event):
+        """Process incoming tick event."""
+        tick: TickData = event.data['tick']
+        
+        # Update metrics
+        self.tick_count += 1
+        self.metrics.increment('ticks_processed')
+        
+        # Process tick with timing
+        start_time = asyncio.get_event_loop().time()
+        
+        try:
+            await self._process_tick(tick)
+        except Exception as e:
+            logger.error(f"Error processing tick: {e}")
+            self.metrics.increment('tick_errors')
+            
+        # Measure processing time
+        processing_time = (asyncio.get_event_loop().time() - start_time) * 1_000_000  # microseconds
+        self.metrics.observe('tick_processing_time_us', processing_time)
+        
+        if processing_time > 100:
+            logger.warning(f"Slow tick processing: {processing_time:.0f}μs")
+            
+    async def _process_tick(self, tick: TickData):
+        """
+        Process tick and update bars.
+        
+        Handles boundary detection and gap filling.
+        """
+        # Check for gaps if we have a last tick
+        if self.last_tick_timestamp:
+            await self._check_and_fill_gaps(tick.timestamp)
+            
+        # Process tick for each timeframe
+        for timeframe in self.timeframes:
+            await self._update_timeframe_bar(timeframe, tick)
+            
+        # Update last tick timestamp
+        self.last_tick_timestamp = tick.timestamp
+        
+    async def _update_timeframe_bar(self, timeframe: int, tick: TickData):
+        """Update bar for specific timeframe."""
+        # Get current boundary
+        boundary = self._get_boundary(tick.timestamp, timeframe)
+        
+        # Check if we need to complete current bar
+        if self.working_bars[timeframe] is not None:
+            if boundary > self.working_bars[timeframe].timestamp:
+                # Complete current bar
+                await self._complete_bar(timeframe)
+                
+        # Create new working bar if needed
+        if self.working_bars[timeframe] is None:
+            self.working_bars[timeframe] = WorkingBar(boundary, timeframe)
+            
+        # Update working bar
+        self.working_bars[timeframe].update(tick.price, tick.volume)
+        
+    def _get_boundary(self, timestamp: datetime, timeframe: int) -> datetime:
+        """Get timeframe boundary with caching."""
+        cache_key = (timestamp.replace(second=0, microsecond=0), timeframe)
+        
+        if cache_key not in self._boundary_cache:
+            self._boundary_cache[cache_key] = TimeframeBoundary.floor_timestamp(
+                timestamp, timeframe
+            )
+            
+            # Limit cache size
+            if len(self._boundary_cache) > 1000:
+                self._boundary_cache.clear()
+                
+        return self._boundary_cache[cache_key]
+        
+    async def _complete_bar(self, timeframe: int, finalize: bool = False):
+        """Complete and emit bar."""
+        working_bar = self.working_bars[timeframe]
+        if working_bar is None:
+            return
+            
+        try:
+            # Convert to BarData
+            bar = working_bar.to_bar()
+            
+            # Emit bar event
+            await self._emit_bar(bar, timeframe)
+            
+            # Update last bar
+            self.last_bars[timeframe] = bar
+            
+            # Clear working bar (unless finalizing)
+            if not finalize:
+                self.working_bars[timeframe] = None
+                
+        except Exception as e:
+            logger.error(f"Error completing bar: {e}")
+            self.metrics.increment('bar_errors')
+            
+    async def _emit_bar(self, bar: BarData, timeframe: int):
+        """Emit bar event."""
+        # Determine event type
+        event_type = EventType.NEW_5MIN_BAR if timeframe == 5 else EventType.NEW_30MIN_BAR
+        
+        # Create event
+        event = Event(
+            type=event_type,
+            data={'bar': bar},
+            source=f"bar_generator_{self.symbol}"
+        )
+        
+        # Publish event
+        await self.event_bus.publish(event)
+        
+        # Update metrics
+        self.bars_emitted[timeframe] += 1
+        self.metrics.increment(f'bars_emitted_{timeframe}min')
+        
+        logger.debug(
+            f"Emitted {timeframe}-min bar: "
+            f"{bar.timestamp} O:{bar.open} H:{bar.high} "
+            f"L:{bar.low} C:{bar.close} V:{bar.volume}"
+        )
+        
+    async def _check_and_fill_gaps(self, current_timestamp: datetime):
+        """Check for gaps and forward-fill if needed."""
+        for timeframe in self.timeframes:
+            last_bar = self.last_bars[timeframe]
+            if last_bar is None:
+                continue
+                
+            # Get missing boundaries
+            missing = TimeframeBoundary.get_missing_boundaries(
+                last_bar.timestamp,
+                current_timestamp,
+                timeframe
+            )
+            
+            # Forward-fill missing bars
+            for boundary in missing:
+                await self._create_synthetic_bar(boundary, timeframe, last_bar)
+                
+    async def _create_synthetic_bar(
+        self,
+        timestamp: datetime,
+        timeframe: int,
+        last_bar: BarData
+    ):
+        """Create synthetic bar for gap filling."""
+        # Forward-fill with last close price
+        synthetic_bar = BarData(
+            timestamp=timestamp,
+            open=last_bar.close,
+            high=last_bar.close,
+            low=last_bar.close,
+            close=last_bar.close,
+            volume=0,
+            tick_count=0,
+            vwap=last_bar.close,
+            is_synthetic=True,
+            timeframe=timeframe
+        )
+        
+        # Emit synthetic bar
+        await self._emit_bar(synthetic_bar, timeframe)
+        
+        # Update metrics
+        self.gaps_filled[timeframe] += 1
+        self.metrics.increment(f'gaps_filled_{timeframe}min')
+        
+        logger.info(
+            f"Created synthetic {timeframe}-min bar at {timestamp} "
+            f"(gap fill from {last_bar.timestamp})"
+        )
+        
+        # Update last bar
+        self.last_bars[timeframe] = synthetic_bar
+
+
+class BarValidator:
+    """
+    Validates bar data quality and consistency.
+    """
+    
+    @staticmethod
+    def validate_bar_sequence(bars: List[BarData]) -> Tuple[bool, List[str]]:
+        """
+        Validate a sequence of bars.
+        
+        Returns:
+            Tuple of (is_valid, error_messages)
+        """
+        errors = []
+        
+        if not bars:
+            return True, errors
+            
+        # Check temporal ordering
+        for i in range(1, len(bars)):
+            if bars[i].timestamp <= bars[i-1].timestamp:
+                errors.append(
+                    f"Bar {i} timestamp {bars[i].timestamp} "
+                    f"not after previous {bars[i-1].timestamp}"
+                )
+                
+        # Check price continuity
+        for i in range(1, len(bars)):
+            prev_close = bars[i-1].close
+            curr_open = bars[i].open
+            
+            # Allow small gap for market gaps
+            max_gap = prev_close * 0.05  # 5%
+            
+            if abs(curr_open - prev_close) > max_gap and not bars[i].is_synthetic:
+                errors.append(
+                    f"Large gap detected: prev close {prev_close} "
+                    f"to open {curr_open} ({abs(curr_open - prev_close)/prev_close:.1%})"
+                )
+                
+        return len(errors) == 0, errors

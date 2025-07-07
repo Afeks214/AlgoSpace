@@ -12,6 +12,7 @@ import numpy as np
 import torch
 
 from .models import RiskManagementEnsemble
+from .communication import MRMSCommunicationLSTM, RiskMemory
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,20 @@ class MRMSComponent:
         self.model.eval()
         self.model_loaded = False
         
+        # Initialize communication layer if configured
+        if 'communication' in config:
+            self.communication_lstm = MRMSCommunicationLSTM(
+                config['communication']
+            ).to(self.device)
+            self.communication_lstm.eval()
+            logger.info("MRMS Communication LSTM initialized")
+        else:
+            self.communication_lstm = None
+            
+        # Track recent outcomes
+        self.recent_outcomes = []
+        self.max_outcome_history = config.get('max_outcome_history', 20)
+        
         logger.info(f"M-RMS Component initialized on device: {self.device}")
         
     def load_model(self, model_path: str) -> None:
@@ -106,6 +121,17 @@ class MRMSComponent:
                 logger.info(f"Final reward mean: {final_reward}")
             else:
                 logger.info(f"Loaded M-RMS model weights from: {model_path}")
+                
+            # Load communication weights if available
+            if self.communication_lstm is not None:
+                comm_path = str(model_path).replace('.pth', '_comm.pth')
+                if Path(comm_path).exists():
+                    try:
+                        comm_state = torch.load(comm_path, map_location=self.device)
+                        self.communication_lstm.load_state_dict(comm_state)
+                        logger.info(f"MRMS Communication weights loaded from {comm_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not load communication weights: {e}")
                 
         except Exception as e:
             logger.error(f"Failed to load M-RMS model: {e}")
@@ -173,6 +199,9 @@ class MRMSComponent:
         sl_multiplier = float(actions['sl_atr_multiplier'].cpu().item())
         rr_ratio = float(actions['rr_ratio'].cpu().item())
         
+        # Get value estimate for confidence
+        value_estimate = outputs.get('value', torch.tensor(0.5))
+        
         # Calculate stop loss and take profit prices
         sl_distance = sl_multiplier * atr
         tp_distance = sl_distance * rr_ratio
@@ -195,6 +224,35 @@ class MRMSComponent:
         position_logits = outputs['position_logits']
         position_probs = torch.softmax(position_logits, dim=-1)
         confidence_score = float(position_probs[0, position_size].cpu().item())
+        
+        # Process through communication LSTM if available
+        mu_risk = None
+        sigma_risk = None
+        adapted_position_size = position_size
+        
+        if self.communication_lstm is not None:
+            # Create risk vector
+            risk_vector = torch.tensor([
+                position_size / self.max_position_size,
+                sl_multiplier / 3.0,  # Normalize
+                rr_ratio / 5.0,  # Normalize  
+                value_estimate.item() if hasattr(value_estimate, 'item') else 0.5
+            ], dtype=torch.float32).unsqueeze(0).to(self.device)
+            
+            # Get recent outcome vector
+            recent_outcome = self._get_recent_outcome_vector()
+            
+            # Process through communication LSTM
+            mu_risk, sigma_risk = self.communication_lstm(
+                risk_vector,
+                recent_outcome,
+                update_memory=False  # Only update after trade completes
+            )
+            
+            # Adapt position size based on uncertainty
+            adapted_position_size = self._adapt_position_size(
+                position_size, sigma_risk[0].mean().item()
+            )
         
         # Build comprehensive risk proposal with strict type enforcement
         risk_proposal = {
@@ -248,6 +306,13 @@ class MRMSComponent:
                 'rr_ratio_acceptable': bool(rr_ratio >= 1.0)
             }
         }
+        
+        # Add temporal context if available
+        if mu_risk is not None and sigma_risk is not None:
+            risk_proposal['risk_embedding'] = mu_risk.cpu().numpy()
+            risk_proposal['risk_uncertainty'] = sigma_risk.cpu().numpy()
+            risk_proposal['adapted_position_size'] = int(adapted_position_size)
+            risk_proposal['risk_metrics']['uncertainty_mean'] = float(sigma_risk.mean().item())
         
         # Validate output format
         self._validate_risk_proposal(risk_proposal)
@@ -377,6 +442,77 @@ class MRMSComponent:
             'max_position_size': self.max_position_size
         })
         return info
+    
+    def _get_recent_outcome_vector(self) -> torch.Tensor:
+        """Get recent outcome vector for communication LSTM."""
+        if not self.recent_outcomes:
+            # No history yet, return neutral vector
+            return torch.zeros(1, 3, dtype=torch.float32).to(self.device)
+            
+        # Calculate recent performance metrics
+        recent_stops = sum(1 for o in self.recent_outcomes[-5:] if o.get('hit_stop', False))
+        recent_targets = sum(1 for o in self.recent_outcomes[-5:] if o.get('hit_target', False))
+        recent_pnl = sum(o.get('pnl', 0) for o in self.recent_outcomes[-5:]) / 100.0  # Normalize
+        
+        return torch.tensor([
+            recent_stops / 5.0,
+            recent_targets / 5.0,
+            np.clip(recent_pnl, -1, 1)
+        ], dtype=torch.float32).unsqueeze(0).to(self.device)
+    
+    def _adapt_position_size(self, base_size: int, uncertainty: float) -> int:
+        """Adapt position size based on uncertainty level."""
+        if self.communication_lstm is None:
+            return base_size
+            
+        # Use communication LSTM's adaptation logic
+        adapted_size = self.communication_lstm._adapt_risk_parameters(
+            float(base_size), uncertainty
+        )
+        
+        # Ensure integer and within limits
+        return int(min(max(0, round(adapted_size)), self.max_position_size))
+    
+    def update_trade_outcome(self, trade_outcome: Dict[str, Any]) -> None:
+        """Update communication layer with trade outcome.
+        
+        Args:
+            trade_outcome: Dictionary containing:
+                - hit_stop: bool
+                - hit_target: bool  
+                - pnl: float
+                - position_size: int
+                - sl_distance: float
+                - tp_distance: float
+        """
+        # Add to recent outcomes
+        self.recent_outcomes.append(trade_outcome)
+        
+        # Trim to max history
+        if len(self.recent_outcomes) > self.max_outcome_history:
+            self.recent_outcomes = self.recent_outcomes[-self.max_outcome_history:]
+            
+        # Update communication LSTM if available
+        if self.communication_lstm is not None:
+            # Create risk vector from trade
+            risk_vector = torch.tensor([[
+                trade_outcome.get('position_size', 0) / self.max_position_size,
+                trade_outcome.get('sl_distance', 0) / 50.0,
+                trade_outcome.get('tp_distance', 0) / 100.0,
+                0.5  # Default confidence
+            ]], dtype=torch.float32).to(self.device)
+            
+            # Create outcome vector
+            outcome_vector = torch.tensor([[
+                float(trade_outcome.get('hit_stop', False)),
+                float(trade_outcome.get('hit_target', False)),
+                np.clip(trade_outcome.get('pnl', 0) / 100.0, -1, 1)
+            ]], dtype=torch.float32).to(self.device)
+            
+            # Update memory
+            self.communication_lstm._update_memory(risk_vector, outcome_vector)
+            
+            logger.info(f"Updated MRMS communication with trade outcome: PnL={trade_outcome.get('pnl', 0)}")
     
     def __repr__(self) -> str:
         """String representation of the M-RMS component."""
