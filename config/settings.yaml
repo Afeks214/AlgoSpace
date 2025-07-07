@@ -126,12 +126,10 @@ matrix_assemblers:
       - fvg_bullish_active
       - fvg_bearish_active
       - fvg_nearest_level
-      - fvg_age
       - fvg_mitigation_signal
       - price_momentum_5
       - volume_ratio
       - fvg_gap_size_pct
-      - fvg_mitigation_strength
     feature_configs:
       price_momentum_5:
         ema_alpha: 0.1
@@ -234,18 +232,116 @@ m_rms:
   pt_agent_hidden: 64
   dropout_rate: 0.2
 
-# Main MARL Core configuration
+# Main MARL Core configuration - Advanced Shared Policy Implementation
+main_marl_core:
+  # Device configuration
+  device: "cpu"  # or "cuda" for GPU
+  
+  # Embedder configurations
+  embedders:
+    structure:
+      output_dim: 64
+      d_model: 128
+      n_heads: 4
+      n_layers: 3
+      d_ff: 512
+      dropout: 0.2
+      
+    tactical:
+      output_dim: 48
+      hidden_dim: 128          # LSTM hidden size
+      n_layers: 3              # Number of BiLSTM layers
+      dropout: 0.2
+      attention_scales: [5, 15, 30]  # Multi-scale attention windows
+      momentum_features: true  # Enable momentum feature extraction
+      
+    regime:
+      output_dim: 16
+      hidden_dim: 32
+      
+    lvn:
+      input_dim: 5
+      output_dim: 8
+      hidden_dim: 16
+      
+  # Shared policy network - Advanced transformer-based implementation
+  policy:
+    state_dim: 512  # Total unified state dimension
+    hidden_dim: 512
+    n_heads: 8
+    n_layers: 6
+    dropout_rate: 0.2
+    
+  # MC Dropout settings
+  mc_dropout:
+    n_samples: 50
+    confidence_threshold: 0.65
+    temperature: 1.0
+    
+  # Decision gate - Two-gate system
+  decision_gate:
+    input_dim: 640  # state (512) + risk (128)
+    hidden_dim: 256
+    risk_threshold: 0.3
+    confidence_threshold: 0.7
+    
+  # Performance monitoring
+  monitoring:
+    metrics_window: 1000
+    log_frequency: 100
+    
+  # Training configuration
+  training:
+    learning_rate: 3e-4
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_ratio: 0.2
+    value_clip: 0.5
+    entropy_coef: 0.01
+    max_grad_norm: 0.5
+    batch_size: 256
+    n_epochs: 10
+    n_minibatches: 4
+    training_steps: 1000000
+    
+  # Reward configuration
+  rewards:
+    miss_penalty: -0.02
+    correct_pass_reward: 0.01
+    false_qualify_penalty: -0.05
+    max_reward_cap: 4.0
+    
+  # Model paths
+  pretrained_weights_path: "models/main_marl_core_v1.pt"
+  checkpoint_dir: "checkpoints/main_marl/"
+  model_paths:
+    structure_embedder: "./models/structure_embedder.pth"
+    tactical_embedder: "./models/tactical_embedder.pth"
+    regime_embedder: "./models/regime_embedder.pth"
+    lvn_embedder: "./models/lvn_embedder.pth"
+    shared_policy: "./models/shared_policy.pth"
+    decision_gate: "./models/decision_gate.pth"
+
+# Legacy main_core configuration (kept for backward compatibility)
 main_core:
   device: cpu  # CPU for production stability
   embedders:
     structure:
       output_dim: 64
+      # Transformer-specific parameters
+      d_model: 128        # Internal transformer dimension
+      n_heads: 4          # Number of attention heads
+      n_layers: 3         # Number of transformer layers
+      d_ff: 512          # Feed-forward dimension
       dropout: 0.2
+      max_seq_len: 48
     tactical:
-      input_dim: 9
-      hidden_dim: 64
-      output_dim: 32
+      input_dim: 7             # Updated to match new architecture
+      hidden_dim: 128          # Updated to match new architecture
+      output_dim: 48           # Updated to match new architecture
+      n_layers: 3              # Number of BiLSTM layers
       dropout: 0.2
+      attention_scales: [5, 15, 30]  # Multi-scale attention windows
     regime:
       output_dim: 16
       hidden_dim: 32

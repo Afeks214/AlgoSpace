@@ -1031,3 +1031,85 @@ class BacktestEngine:
         plt.close()
         
         logger.info(f"Backtest report saved to {report_dir}")
+
+
+class TacticalEmbedderMonitor:
+    """Monitor tactical embedder behavior and momentum patterns."""
+    
+    def __init__(self, window_size: int = 1000):
+        self.window_size = window_size
+        from src.agents.main_core.models import MomentumAnalyzer
+        self.momentum_analyzer = MomentumAnalyzer(window_size)
+        self.performance_history = []
+        
+    def record_inference(
+        self,
+        embeddings: torch.Tensor,
+        uncertainties: torch.Tensor,
+        attention_weights: torch.Tensor,
+        lstm_states: Optional[List[torch.Tensor]] = None
+    ):
+        """Record inference statistics and analyze momentum."""
+        # Analyze momentum patterns
+        momentum_metrics = self.momentum_analyzer.analyze(
+            embeddings, 
+            attention_weights,
+            lstm_states or []
+        )
+        
+        # Record performance metrics
+        self.performance_history.append({
+            'timestamp': datetime.now(),
+            'embedding_norm': embeddings.norm(dim=-1).mean().item(),
+            'uncertainty_mean': uncertainties.mean().item(),
+            'uncertainty_std': uncertainties.std().item(),
+            'momentum_clarity': momentum_metrics['momentum_clarity'],
+            'recent_focus_ratio': momentum_metrics['recent_focus_ratio'],
+            'patterns': momentum_metrics.get('patterns', [])
+        })
+        
+        # Keep window size
+        if len(self.performance_history) > self.window_size:
+            self.performance_history.pop(0)
+            
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get current monitoring statistics."""
+        if not self.performance_history:
+            return {}
+            
+        recent = self.performance_history[-100:]
+        
+        # Pattern frequency
+        all_patterns = []
+        for record in recent:
+            all_patterns.extend(record.get('patterns', []))
+            
+        pattern_counts = {}
+        for pattern in all_patterns:
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+            
+        return {
+            'avg_momentum_clarity': np.mean([r['momentum_clarity'] for r in recent]),
+            'avg_recent_focus': np.mean([r['recent_focus_ratio'] for r in recent]),
+            'avg_uncertainty': np.mean([r['uncertainty_mean'] for r in recent]),
+            'pattern_frequencies': pattern_counts,
+            'embedding_stability': 1.0 / (np.std([r['embedding_norm'] for r in recent]) + 1e-8)
+        }
+        
+    def create_momentum_report(self) -> str:
+        """Generate human-readable momentum analysis report."""
+        stats = self.get_statistics()
+        
+        report = "Tactical Embedder Momentum Report\n"
+        report += "=" * 40 + "\n\n"
+        
+        report += f"Momentum Clarity: {stats.get('avg_momentum_clarity', 0):.3f}\n"
+        report += f"Recent Focus Ratio: {stats.get('avg_recent_focus', 0):.3f}\n"
+        report += f"Average Uncertainty: {stats.get('avg_uncertainty', 0):.3f}\n"
+        report += f"Embedding Stability: {stats.get('embedding_stability', 0):.3f}\n\n"
+        
+        report += "Pattern Frequencies:\n"
+        for pattern, count in stats.get('pattern_frequencies', {}).items():
+            report += f"  - {pattern}: {count} occurrences\n"
+            
+        return report

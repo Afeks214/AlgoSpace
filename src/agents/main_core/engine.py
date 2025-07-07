@@ -61,14 +61,19 @@ class MainMARLCoreComponent:
         self.structure_embedder = StructureEmbedder(
             input_channels=8,
             output_dim=embedder_config.get('structure', {}).get('output_dim', 64),
+            d_model=embedder_config.get('structure', {}).get('d_model', 128),
+            n_heads=embedder_config.get('structure', {}).get('n_heads', 4),
+            n_layers=embedder_config.get('structure', {}).get('n_layers', 3),
             dropout_rate=embedder_config.get('structure', {}).get('dropout', 0.2)
         ).to(self.device)
         
         self.tactical_embedder = TacticalEmbedder(
             input_dim=7,
-            hidden_dim=embedder_config.get('tactical', {}).get('hidden_dim', 64),
+            hidden_dim=embedder_config.get('tactical', {}).get('hidden_dim', 128),
             output_dim=embedder_config.get('tactical', {}).get('output_dim', 48),
-            dropout_rate=embedder_config.get('tactical', {}).get('dropout', 0.2)
+            n_layers=embedder_config.get('tactical', {}).get('n_layers', 3),
+            dropout_rate=embedder_config.get('tactical', {}).get('dropout', 0.2),
+            attention_scales=embedder_config.get('tactical', {}).get('attention_scales', [5, 15, 30])
         ).to(self.device)
         
         self.regime_embedder = RegimeEmbedder(
@@ -191,6 +196,83 @@ class MainMARLCoreComponent:
         self.models_loaded = True
         self.eval_mode()
         
+    def _prepare_unified_state_with_uncertainty(self, synergy_event: Dict[str, Any]) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Prepare unified state vector with uncertainty estimates.
+        
+        Returns:
+            Tuple of (unified_state, uncertainties) where uncertainties
+            contains sigma values from each embedder.
+        """
+        try:
+            # Get matrix assembler components
+            matrix_30m = self.components.get('matrix_30m')
+            matrix_5m = self.components.get('matrix_5m')
+            rde = self.components.get('rde')
+            
+            if not all([matrix_30m, matrix_5m, rde]):
+                raise RuntimeError("Required components not available")
+            
+            # Get data from matrix assemblers
+            structure_matrix = matrix_30m.get_matrix()  # [48, 8]
+            tactical_matrix = matrix_5m.get_matrix()    # [60, 7]
+            
+            # Get regime vector
+            regime_vector = rde.get_regime_vector()     # [8]
+            
+            # Extract LVN features from synergy context
+            lvn_features = self._extract_lvn_features(synergy_event)  # [5]
+            
+            # Convert to tensors and add batch dimension
+            structure_tensor = torch.tensor(
+                structure_matrix, dtype=torch.float32
+            ).unsqueeze(0).to(self.device)
+            
+            tactical_tensor = torch.tensor(
+                tactical_matrix, dtype=torch.float32
+            ).unsqueeze(0).to(self.device)
+            
+            regime_tensor = torch.tensor(
+                regime_vector, dtype=torch.float32
+            ).unsqueeze(0).to(self.device)
+            
+            lvn_tensor = torch.tensor(
+                lvn_features, dtype=torch.float32
+            ).unsqueeze(0).to(self.device)
+            
+            # Process through embedders with uncertainty
+            with torch.no_grad():
+                # Get structure embedding with uncertainty
+                mu_structure, sigma_structure = self.structure_embedder(structure_tensor)
+                
+                # Get tactical embedding with uncertainty (UPDATED)
+                mu_tactical, sigma_tactical = self.tactical_embedder(tactical_tensor)
+                
+                # Get other embeddings (currently no uncertainty)
+                mu_regime = self.regime_embedder(regime_tensor)
+                mu_lvn = self.lvn_embedder(lvn_tensor)
+                
+                # Placeholder uncertainties for other embedders
+                sigma_regime = torch.ones_like(mu_regime) * 0.1
+                sigma_lvn = torch.ones_like(mu_lvn) * 0.1
+            
+            # Concatenate means for unified state
+            unified_state = torch.cat([mu_structure, mu_tactical, mu_regime, mu_lvn], dim=-1)
+            
+            # Store uncertainties
+            uncertainties = {
+                'structure': sigma_structure,
+                'tactical': sigma_tactical,
+                'regime': sigma_regime,
+                'lvn': sigma_lvn
+            }
+            
+            return unified_state, uncertainties
+            
+        except Exception as e:
+            logger.error(f"Error preparing unified state with uncertainty: {e}")
+            raise RuntimeError(f"Failed to prepare unified state: {e}")
+        
     def _prepare_unified_state(self, synergy_event: Dict[str, Any]) -> torch.Tensor:
         """
         Prepare the unified state vector from all data sources.
@@ -239,15 +321,25 @@ class MainMARLCoreComponent:
             
             # Process through embedders
             with torch.no_grad():
-                structure_embedded = self.structure_embedder(structure_tensor)
-                tactical_embedded = self.tactical_embedder(tactical_tensor)
+                # Structure embedder returns (mu, sigma)
+                structure_mu, structure_sigma = self.structure_embedder(structure_tensor)
+                # Tactical embedder now returns (mu, sigma)
+                tactical_mu, tactical_sigma = self.tactical_embedder(tactical_tensor)
                 regime_embedded = self.regime_embedder(regime_tensor)
                 lvn_embedded = self.lvn_embedder(lvn_tensor)
             
-            # Concatenate all embeddings
+            # Store uncertainties for decision making
+            self.current_uncertainties = {
+                'structure': structure_sigma,
+                'tactical': tactical_sigma,
+                'regime': torch.ones_like(regime_embedded) * 0.1,      # Placeholder
+                'lvn': torch.ones_like(lvn_embedded) * 0.1             # Placeholder
+            }
+            
+            # Concatenate all embeddings (use mean for structure and tactical)
             unified_state = torch.cat([
-                structure_embedded,
-                tactical_embedded,
+                structure_mu,
+                tactical_mu,
                 regime_embedded,
                 lvn_embedded
             ], dim=-1)
@@ -846,6 +938,27 @@ class MainMARLCoreComponent:
             base_metrics.update(self.performance_metrics)
         
         return base_metrics
+    
+    def get_embedder_metrics(self) -> Dict[str, Any]:
+        """Get metrics from embedders for monitoring."""
+        metrics = {}
+        
+        # Get attention statistics from structure embedder
+        with torch.no_grad():
+            dummy_input = torch.randn(1, 48, 8).to(self.device)
+            _, sigma, attention_weights = self.structure_embedder(
+                dummy_input, 
+                return_attention_weights=True
+            )
+            
+            metrics['structure_embedder'] = {
+                'avg_uncertainty': sigma.mean().item(),
+                'max_uncertainty': sigma.max().item(),
+                'attention_entropy': -(attention_weights * torch.log(attention_weights + 1e-8)).sum().item(),
+                'attention_peak': attention_weights.max().item()
+            }
+        
+        return metrics
     
     def __repr__(self) -> str:
         """String representation."""

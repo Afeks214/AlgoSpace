@@ -1,0 +1,286 @@
+# Training Configuration for Advanced Tactical Embedder (5-Minute LSTM)
+# This configuration file contains all parameters needed to train the advanced
+# bidirectional LSTM tactical embedder with uncertainty quantification
+
+# Model architecture configuration
+tactical_embedder:
+  # Core architecture parameters
+  architecture:
+    input_dim: 7                    # Number of input features from 5m matrix
+    hidden_dim: 128                 # LSTM hidden dimension
+    output_dim: 48                  # Output embedding dimension
+    n_layers: 3                     # Number of bidirectional LSTM layers
+    dropout_rate: 0.2               # Dropout probability for regularization
+    attention_scales: [5, 15, 30]   # Multi-scale attention windows (bars)
+    
+  # Training hyperparameters
+  training:
+    # Optimization settings
+    learning_rate: 5e-4             # Initial learning rate
+    lr_scheduler: "cosine"          # Learning rate scheduler type
+    warmup_steps: 500               # Number of warmup steps
+    max_epochs: 50                  # Maximum training epochs
+    batch_size: 64                  # Training batch size
+    eval_batch_size: 128            # Evaluation batch size
+    
+    # Gradient control
+    gradient_clip: 0.5              # Gradient clipping threshold
+    weight_decay: 1e-5              # L2 regularization weight
+    max_grad_norm: 1.0              # Maximum gradient norm
+    
+    # Training schedule
+    validate_every: 200             # Validation frequency (steps)
+    save_every: 1000                # Checkpoint saving frequency (steps)
+    log_every: 50                   # Logging frequency (steps)
+    
+  # Loss function configuration
+  loss:
+    # Loss component weights
+    momentum_weight: 0.4            # Weight for momentum prediction loss
+    uncertainty_weight: 0.3         # Weight for uncertainty calibration loss
+    attention_weight: 0.2           # Weight for attention consistency loss
+    smoothness_weight: 0.1          # Weight for state smoothness regularization
+    
+    # Loss-specific parameters
+    uncertainty_target_factor: 1.0  # Scaling factor for uncertainty targets
+    min_uncertainty: 1e-6           # Minimum uncertainty threshold
+    attention_smoothness_beta: 0.1  # Beta for attention smoothness
+    
+  # Data augmentation and preprocessing
+  data:
+    # Input normalization
+    normalize_inputs: true          # Whether to normalize input features
+    normalization_method: "zscore"  # "zscore", "minmax", or "robust"
+    feature_clip_range: [-5, 5]     # Clipping range for extreme values
+    
+    # Data augmentation
+    augmentation:
+      enabled: true                 # Enable data augmentation
+      noise_std: 0.005              # Gaussian noise standard deviation
+      dropout_prob: 0.1             # Feature dropout probability
+      time_shift_range: [-1, 1]     # Time shift range (bars)
+      scaling_range: [0.95, 1.05]   # Feature scaling range
+      momentum_jitter: 0.02         # Momentum signal jittering
+      
+    # Sequence handling
+    sequence_length: 60             # Input sequence length (bars)
+    overlap_ratio: 0.5              # Overlap between training sequences
+    min_sequence_length: 30         # Minimum valid sequence length
+    
+  # Validation and early stopping
+  validation:
+    # Validation split
+    val_split: 0.2                  # Validation dataset size
+    val_shuffle: true               # Shuffle validation data
+    
+    # Early stopping
+    early_stopping:
+      enabled: true                 # Enable early stopping
+      patience: 10                  # Patience (epochs without improvement)
+      min_delta: 1e-4               # Minimum improvement threshold
+      restore_best_weights: true    # Restore best weights after stopping
+      
+    # Metrics to track
+    metrics:
+      primary: "momentum_accuracy"   # Primary metric for model selection
+      secondary: ["uncertainty_calibration", "attention_entropy"]
+      
+  # Monte Carlo Dropout configuration
+  mc_dropout:
+    n_samples: 10                   # Number of MC samples during training
+    inference_dropout: 0.1          # Dropout rate during MC inference
+    uncertainty_threshold: 0.1      # Uncertainty threshold for predictions
+    
+  # Optimizer configuration
+  optimizer:
+    type: "adamw"                   # Optimizer type (adamw, adam, sgd)
+    betas: [0.9, 0.999]             # Adam beta parameters
+    eps: 1e-8                       # Adam epsilon
+    amsgrad: false                  # Use AMSGrad variant
+    
+  # Learning rate scheduler
+  scheduler:
+    cosine:
+      T_max: 50                     # Maximum epochs for cosine schedule
+      eta_min: 1e-6                 # Minimum learning rate
+    step:
+      step_size: 10                 # Step size for StepLR
+      gamma: 0.5                    # Decay factor
+    plateau:
+      mode: "min"                   # Monitor mode (min/max)
+      factor: 0.5                   # Reduction factor
+      patience: 5                   # Patience epochs
+      threshold: 1e-4               # Threshold for improvement
+      
+  # Model checkpointing
+  checkpointing:
+    save_dir: "checkpoints/tactical_embedder"  # Checkpoint directory
+    save_top_k: 3                   # Keep top K checkpoints
+    save_last: true                 # Always save last checkpoint
+    monitor: "val_momentum_accuracy" # Metric to monitor for best model
+    mode: "max"                     # Monitor mode (min/max)
+    filename: "tactical-{epoch:02d}-{val_momentum_accuracy:.3f}"
+    
+  # Advanced training techniques
+  advanced:
+    # Mixed precision training
+    mixed_precision:
+      enabled: false                # Enable automatic mixed precision
+      opt_level: "O1"               # Optimization level (O0, O1, O2, O3)
+      
+    # Gradient accumulation
+    gradient_accumulation:
+      enabled: false                # Enable gradient accumulation
+      steps: 2                      # Number of accumulation steps
+      
+    # Model averaging
+    model_averaging:
+      enabled: false                # Enable exponential moving average
+      decay: 0.999                  # EMA decay factor
+      
+    # Progressive resizing
+    progressive_resizing:
+      enabled: false                # Enable progressive sequence length increase
+      initial_length: 30            # Initial sequence length
+      final_length: 60              # Final sequence length
+      growth_schedule: "linear"     # Growth schedule (linear, exponential)
+
+# Training environment configuration
+environment:
+  # Hardware settings
+  device: "auto"                    # Device selection (auto, cpu, cuda, cuda:0)
+  num_workers: 4                    # Number of data loading workers
+  pin_memory: true                  # Pin memory for faster GPU transfer
+  
+  # Random seeds for reproducibility
+  random_seed: 42                   # Main random seed
+  torch_seed: 42                    # PyTorch random seed
+  numpy_seed: 42                    # NumPy random seed
+  
+  # Memory management
+  memory_management:
+    max_memory_gb: 8                # Maximum memory usage (GB)
+    cleanup_interval: 100           # Memory cleanup interval (batches)
+    gradient_checkpointing: false   # Enable gradient checkpointing
+    
+# Monitoring and logging configuration
+monitoring:
+  # TensorBoard logging
+  tensorboard:
+    enabled: true                   # Enable TensorBoard logging
+    log_dir: "logs/tactical_embedder" # TensorBoard log directory
+    log_histograms: true            # Log parameter histograms
+    log_embeddings: false           # Log embedding projections
+    
+  # MLflow tracking
+  mlflow:
+    enabled: false                  # Enable MLflow tracking
+    experiment_name: "tactical_embedder_training"
+    tracking_uri: "http://localhost:5000"
+    
+  # Weights & Biases
+  wandb:
+    enabled: false                  # Enable Weights & Biases
+    project: "algospace-tactical"   # W&B project name
+    entity: null                    # W&B entity (team)
+    
+  # Metrics to log
+  metrics:
+    train: ["loss", "momentum_loss", "uncertainty_loss", "attention_loss", "smoothness_loss"]
+    val: ["val_loss", "val_momentum_accuracy", "val_uncertainty_calibration"]
+    system: ["learning_rate", "memory_usage", "gpu_utilization"]
+
+# Data pipeline configuration
+data_pipeline:
+  # Data loading
+  loading:
+    batch_size: 64                  # Data loader batch size
+    shuffle: true                   # Shuffle training data
+    drop_last: true                 # Drop incomplete last batch
+    
+  # Preprocessing pipeline
+  preprocessing:
+    steps:
+      - name: "feature_selection"   # Select relevant features
+        params:
+          features: ["fvg_bullish_active", "fvg_bearish_active", "fvg_nearest_level", 
+                    "fvg_mitigation_signal", "price_momentum_5", "volume_ratio", "fvg_gap_size_pct"]
+      - name: "normalization"       # Normalize features
+        params:
+          method: "zscore"
+          per_feature: true
+      - name: "sequence_windowing"  # Create windowed sequences
+        params:
+          window_size: 60
+          stride: 1
+          
+  # Target generation
+  targets:
+    momentum_prediction:
+      horizon: 1                    # Prediction horizon (bars)
+      aggregation: "mean"           # Aggregation method
+    volatility_estimation:
+      window: 10                    # Volatility estimation window
+      method: "realized"            # Volatility calculation method
+
+# Model validation configuration
+validation:
+  # Cross-validation
+  cross_validation:
+    enabled: false                  # Enable k-fold cross-validation
+    n_folds: 5                      # Number of folds
+    stratify: false                 # Stratified split
+    
+  # Walk-forward validation
+  walk_forward:
+    enabled: true                   # Enable walk-forward validation
+    train_size: 0.7                 # Training set size
+    val_size: 0.15                  # Validation set size
+    test_size: 0.15                 # Test set size
+    
+  # Evaluation metrics
+  metrics:
+    regression: ["mse", "mae", "r2", "mape"]
+    uncertainty: ["calibration_error", "coverage", "sharpness"]
+    attention: ["entropy", "consistency", "interpretability"]
+
+# Advanced configuration options
+advanced_config:
+  # Hyperparameter tuning
+  hyperparameter_tuning:
+    enabled: false                  # Enable automated tuning
+    method: "optuna"                # Tuning method (optuna, ray)
+    n_trials: 100                   # Number of tuning trials
+    objective: "val_momentum_accuracy"  # Objective to optimize
+    
+  # Model compression
+  compression:
+    enabled: false                  # Enable model compression
+    method: "pruning"               # Compression method
+    sparsity: 0.1                   # Target sparsity
+    
+  # Knowledge distillation
+  distillation:
+    enabled: false                  # Enable knowledge distillation
+    teacher_model: null             # Path to teacher model
+    temperature: 4.0                # Distillation temperature
+    alpha: 0.7                      # Knowledge distillation weight
+
+# Production deployment configuration
+deployment:
+  # Model export
+  export:
+    format: "torchscript"           # Export format (torchscript, onnx)
+    optimization: "speed"           # Optimization target (speed, memory)
+    
+  # Performance requirements
+  performance:
+    max_latency_ms: 5               # Maximum inference latency (ms)
+    min_throughput: 100             # Minimum throughput (samples/sec)
+    max_memory_mb: 50               # Maximum memory usage (MB)
+    
+  # Quality requirements
+  quality:
+    min_accuracy: 0.75              # Minimum momentum prediction accuracy
+    max_uncertainty: 0.3            # Maximum average uncertainty
+    min_pattern_detection: 0.6      # Minimum pattern detection rate
