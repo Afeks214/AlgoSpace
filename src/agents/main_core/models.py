@@ -434,12 +434,15 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
     
     Processes 60×7 matrix to extract short-term momentum patterns with
     uncertainty quantification and multi-scale attention mechanisms.
+    Now includes optional enhancements for pattern recognition,
+    microstructure analysis, FVG detection, and execution quality.
     
     Architecture:
         1. Input projection with momentum feature extraction
         2. Bidirectional LSTM layers (3 layers)
         3. Multi-scale temporal attention
-        4. Dual heads for μ and σ with MC Dropout
+        4. Optional tactical enhancements
+        5. Dual heads for μ and σ with MC Dropout
     
     Args:
         input_dim: Number of input features (default: 7)
@@ -448,6 +451,8 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
         n_layers: Number of LSTM layers (default: 3)
         dropout_rate: Dropout probability (default: 0.2)
         attention_scales: Time scales for attention (default: [5, 15, 30])
+        use_enhancements: Whether to use tactical enhancements (default: False)
+        enhancement_config: Configuration for enhancements
     """
     
     def __init__(
@@ -457,13 +462,16 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
         output_dim: int = 48,
         n_layers: int = 3,
         dropout_rate: float = 0.2,
-        attention_scales: List[int] = [5, 15, 30]
+        attention_scales: List[int] = [5, 15, 30],
+        use_enhancements: bool = False,
+        enhancement_config: Optional[Dict[str, Any]] = None
     ):
         super().__init__()
         
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
+        self.use_enhancements = use_enhancements
         
         # Input projection with momentum features
         self.input_projection = nn.Sequential(
@@ -538,6 +546,27 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
             nn.Linear(hidden_dim, output_dim),
             nn.Softplus()  # Ensure positive uncertainty
         )
+        
+        # Optional tactical enhancements
+        if use_enhancements:
+            from .tactical_enhancements import TacticalEnhancementIntegrator, TacticalEnhancementConfig
+            
+            # Create enhancement config
+            if enhancement_config is None:
+                enhancement_config = TacticalEnhancementConfig()
+            elif isinstance(enhancement_config, dict):
+                enhancement_config = TacticalEnhancementConfig(**enhancement_config)
+                
+            self.enhancement_integrator = TacticalEnhancementIntegrator(enhancement_config)
+            
+            # Adjust output dimension if using enhancements
+            enhancement_dim = enhancement_config.hidden_dim
+            self.enhanced_projection = nn.Sequential(
+                nn.Linear(hidden_dim * 2 + enhancement_dim, hidden_dim * 2),
+                nn.LayerNorm(hidden_dim * 2),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate)
+            )
         
         # Initialize weights
         self._init_weights()
@@ -625,6 +654,27 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
         attention_weights = self.temporal_pool(h)  # [batch, seq, 1]
         pooled = torch.sum(h * attention_weights, dim=1)  # [batch, hidden*2]
         
+        # Apply enhancements if enabled
+        if self.use_enhancements:
+            # Prepare microstructure data if available
+            microstructure_data = self._prepare_microstructure_data(x)
+            
+            # Run enhancement integrator
+            enhancement_results = self.enhancement_integrator(
+                price_data=x[:, :, :5],  # OHLCV from input
+                microstructure_data=microstructure_data,
+                base_features=pooled
+            )
+            
+            # Combine enhanced features with base features
+            enhanced_features = enhancement_results['enhanced_features']
+            pooled = self.enhanced_projection(
+                torch.cat([pooled, enhanced_features], dim=1)
+            )
+            
+            # Store enhancement results for analysis
+            self.last_enhancement_results = enhancement_results
+        
         # Generate mean and uncertainty through dual heads
         mu = self.mu_head(pooled)
         sigma = self.sigma_head(pooled) + 1e-6  # Prevent zero uncertainty
@@ -637,6 +687,29 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
             return mu, sigma, lstm_states
         else:
             return mu, sigma
+    
+    def _prepare_microstructure_data(self, x: torch.Tensor) -> Optional[Dict[str, torch.Tensor]]:
+        """Prepare microstructure data from input features."""
+        # This is a placeholder - in production, microstructure data
+        # would come from separate data sources
+        batch_size, seq_len, features = x.shape
+        
+        if features >= 7:
+            # Mock microstructure data based on available features
+            return {
+                'spread': x[:, :, 5:6].repeat(1, 1, 3),  # Mock bid/ask/spread
+                'volume': x[:, -1, 6:7].repeat(1, 4),  # Mock volume features
+                'book': torch.randn(batch_size, 2, 20),  # Mock order book
+                'trade_sizes': torch.randn(batch_size, 10),  # Mock trade size histogram
+                'liquidity': x[:, :, 6:7].repeat(1, 1, 5)  # Mock liquidity data
+            }
+        return None
+    
+    def get_enhancement_results(self) -> Optional[Dict[str, Any]]:
+        """Get results from last enhancement analysis."""
+        if hasattr(self, 'last_enhancement_results'):
+            return self.last_enhancement_results
+        return None
             
     def get_mc_predictions(self, x: torch.Tensor, n_samples: int = 10) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -919,45 +992,92 @@ class RegimeEmbedder(nn.Module, MCDropoutMixin):
 
 class LVNEmbedder(nn.Module, MCDropoutMixin):
     """
-    Embedder for processing LVN (Low Volume Node) context.
+    Advanced LVN (Low Volume Node) embedder with spatial awareness.
     
-    Processes tactical features related to nearby support/resistance
-    levels identified through volume profile analysis.
+    This embedder can operate in two modes:
+    1. Simple mode: Direct embedding of LVN features (backward compatible)
+    2. Advanced mode: Full spatial-temporal analysis with attention
     
     Args:
         input_dim: Number of LVN features (default: 5)
-        output_dim: Output embedding dimension (default: 8)
-        hidden_dim: Hidden layer dimension (default: 16)
+        output_dim: Output embedding dimension (default: 8 for simple, 32 for advanced)
+        hidden_dim: Hidden layer dimension (default: 16 for simple, 64 for advanced)
+        use_advanced: Whether to use advanced implementation (default: False)
+        max_levels: Maximum number of LVN levels to process (default: 10)
     """
     
     def __init__(
         self,
         input_dim: int = 5,
         output_dim: int = 8,
-        hidden_dim: int = 16
+        hidden_dim: int = 16,
+        use_advanced: bool = False,
+        max_levels: int = 10,
+        **kwargs
     ):
         super().__init__()
         
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
-            nn.LayerNorm(output_dim),
-            nn.ReLU()
-        )
+        self.use_advanced = use_advanced
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if use_advanced:
+            # Import advanced implementation
+            from .lvn_embedder import LVNEmbedder as AdvancedLVNEmbedder
+            from .lvn_context_builder import LVNContextBuilder
+            
+            # Use advanced dimensions
+            self.output_dim = 32  # Override for advanced mode
+            self.embedder = AdvancedLVNEmbedder(
+                input_dim=input_dim,
+                output_dim=self.output_dim,
+                hidden_dim=64,
+                max_levels=max_levels,
+                dropout_rate=kwargs.get('dropout_rate', 0.1)
+            )
+            self.context_builder = LVNContextBuilder(
+                max_levels=max_levels,
+                device=kwargs.get('device', torch.device('cpu'))
+            )
+        else:
+            # Simple MLP implementation (backward compatible)
+            self.mlp = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, output_dim),
+                nn.LayerNorm(output_dim),
+                nn.ReLU()
+            )
+        
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Forward pass through LVN embedder.
         
         Args:
-            x: LVN features [batch_size, input_dim]
+            x: LVN features [batch_size, input_dim] or full context dict
+            **kwargs: Additional arguments for advanced mode
             
         Returns:
             Embedded features [batch_size, output_dim]
         """
-        return self.mlp(x)
+        if self.use_advanced:
+            # Advanced mode expects a context dictionary
+            if isinstance(x, dict):
+                # Direct context provided
+                context = x
+            else:
+                # Build context from features
+                lvn_data = kwargs.get('lvn_data', {})
+                market_state = kwargs.get('market_state', {'current_price': 100.0})
+                context = self.context_builder.build_context(lvn_data, market_state)
+                
+            # Run advanced embedder
+            results = self.embedder(context)
+            return results['embedding']
+        else:
+            # Simple mode - direct embedding
+            return self.mlp(x)
 
 
 class SharedPolicyNetwork(nn.Module):

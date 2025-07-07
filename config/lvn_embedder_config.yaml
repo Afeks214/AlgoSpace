@@ -1,0 +1,146 @@
+# LVN Embedder Production Configuration
+# This configuration file controls the advanced LVN embedder behavior
+
+embedder:
+  # Whether to use advanced implementation
+  use_advanced: true
+  
+  # Core dimensions
+  input_dim: 5  # [price, strength, distance, volume, direction]
+  output_dim: 32  # Final embedding dimension (8 for simple, 32 for advanced)
+  hidden_dim: 64  # Internal processing dimension
+  
+  # LVN processing parameters
+  max_levels: 10  # Maximum number of LVN levels to process
+  price_history_length: 20  # Number of historical price points to consider
+  interaction_lookback: 50  # Bars to analyze for historical interactions
+  
+  # Model architecture
+  dropout_rate: 0.1
+  attention_heads: 4
+  
+  # Device configuration
+  device: "cuda"  # "cuda" or "cpu"
+
+context_builder:
+  # Relevance scoring weights
+  strength_weight: 0.4
+  distance_weight: 0.3
+  interaction_weight: 0.2
+  direction_weight: 0.1
+  
+  # Interaction detection
+  test_threshold: 0.5  # % distance to consider a test
+  interaction_types:
+    - bounce
+    - break
+    - consolidation
+  
+  # History management
+  max_history_length: 100
+  lvn_history_size: 200
+  interaction_buffer_size: 500
+
+loss_functions:
+  # Composite loss weights
+  relevance_weight: 1.0
+  interaction_weight: 1.0
+  spatial_weight: 0.5
+  temporal_weight: 0.3
+  uncertainty_weight: 0.2
+  
+  # Individual loss parameters
+  relevance_margin: 0.2
+  spatial_temperature: 0.1
+  temporal_alpha: 0.5
+  uncertainty_beta: 0.5
+
+training:
+  # Learning rate schedule
+  initial_lr: 0.001
+  lr_scheduler: "cosine"
+  warmup_steps: 1000
+  
+  # Batch settings
+  batch_size: 32
+  gradient_accumulation_steps: 4
+  
+  # Training duration
+  num_epochs: 100
+  early_stopping_patience: 10
+  
+  # Optimization
+  optimizer: "adamw"
+  weight_decay: 0.01
+  gradient_clip_norm: 1.0
+  
+  # Regularization
+  label_smoothing: 0.1
+  mixup_alpha: 0.2
+
+inference:
+  # Performance optimization
+  use_fp16: true
+  compile_model: true
+  batch_timeout_ms: 50
+  
+  # Caching
+  enable_cache: true
+  cache_size: 1000
+  cache_ttl_seconds: 300
+
+monitoring:
+  # Metrics to track
+  track_metrics:
+    - relevance_accuracy
+    - interaction_precision
+    - spatial_consistency
+    - temporal_stability
+    - inference_latency
+    
+  # Logging
+  log_frequency: 100
+  save_frequency: 1000
+  
+  # Alerts
+  alert_thresholds:
+    relevance_accuracy: 0.7
+    interaction_precision: 0.6
+    latency_ms: 2.0
+
+deployment:
+  # Model versioning
+  model_version: "1.0.0"
+  compatibility_version: "1.0"
+  
+  # Resource limits
+  max_memory_mb: 512
+  max_gpu_memory_mb: 1024
+  
+  # Scaling
+  min_replicas: 1
+  max_replicas: 4
+  target_utilization: 0.7
+  
+  # Health checks
+  health_check_interval: 30
+  health_check_timeout: 10
+  startup_timeout: 120
+
+# Production safety settings
+safety:
+  # Input validation
+  validate_inputs: true
+  max_input_size: 1000
+  
+  # Output constraints
+  clip_outputs: true
+  output_range: [-10.0, 10.0]
+  
+  # Fallback behavior
+  enable_fallback: true
+  fallback_mode: "simple"  # Use simple embedder if advanced fails
+  
+  # Error handling
+  max_retries: 3
+  retry_delay_ms: 100
