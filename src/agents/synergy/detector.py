@@ -37,6 +37,14 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
     - Zero false negatives on valid patterns
     """
     
+    # CRITICAL: Define the 4 synergy patterns mapping
+    SYNERGY_PATTERNS = {
+        ('mlmi', 'nwrqk', 'fvg'): 'TYPE_1',  # Classic momentum continuation
+        ('mlmi', 'fvg', 'nwrqk'): 'TYPE_2',  # Early gap with late breakout
+        ('nwrqk', 'fvg', 'mlmi'): 'TYPE_3',  # Breakout-gap-momentum sequence
+        ('nwrqk', 'mlmi', 'fvg'): 'TYPE_4'   # Range break with momentum
+    }
+    
     def __init__(self, name: str, kernel: AlgoSpaceKernel):
         """
         Initialize SynergyDetector.
@@ -120,214 +128,409 @@ class SynergyDetector(ComponentBase, BaseSynergyDetector):
         # Log final metrics
         logger.info(f"SynergyDetector shutting down metrics={self.performance_metrics}")
     
-    def _handle_indicators_ready(self, event: Event):
+    async def _handle_indicators_ready(self, event: Event):
         """
-        Handle INDICATORS_READY event from IndicatorEngine.
+        Handle INDICATORS_READY event.
         
         Args:
-            event: Event containing Feature Store snapshot
+            event: Event containing feature store snapshot
         """
-        start_time = time.perf_counter()
-        
         try:
-            # Extract features and timestamp
             features = event.payload
             timestamp = event.timestamp
             
-            # Add timestamp to features for pattern detectors
-            features['timestamp'] = timestamp
+            # Validate features
+            if not self._validate_features(features):
+                logger.warning(
+                    "Invalid features received",
+                    event_id=event.id
+                )
+                return
             
             # Process features for synergy detection
             synergy = self.process_features(features, timestamp)
             
-            # If synergy detected, emit event
             if synergy:
-                self._emit_synergy_event(synergy, features)
-            
-            # Update metrics
-            self._update_performance_metrics(time.perf_counter() - start_time)
-            
+                logger.info(
+                    "Synergy pattern detected via event",
+                    synergy_type=synergy.synergy_type,
+                    event_id=event.id
+                )
+        
         except Exception as e:
-            logger.error(f"Error processing indicators error={str(e)} event_type={event.event_type.value}")
+            logger.error(
+                "Error handling INDICATORS_READY event",
+                error=str(e),
+                event_id=event.id
+            )
+    
+    def _validate_features(self, features: Dict[str, Any]) -> bool:
+        """
+        Validate that features contain required fields.
+        
+        Args:
+            features: Feature dictionary to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        required_fields = [
+            'timestamp', 'current_price',
+            'mlmi_signal', 'mlmi_value',
+            'nwrqk_signal', 'nwrqk_slope',
+            'fvg_mitigation_signal'
+        ]
+        
+        for field in required_fields:
+            if field not in features:
+                logger.warning(f"Missing required field: {field}")
+                return False
+        
+        return True
     
     def process_features(self, features: Dict[str, Any], timestamp: datetime) -> Optional[SynergyPattern]:
         """
-        Process features to detect synergy patterns.
+        Process features and detect synergy patterns.
         
         This is the main detection logic that coordinates pattern detection,
         sequence tracking, and cooldown management.
+        
+        Args:
+            features: Feature store snapshot
+            timestamp: Current timestamp
+            
+        Returns:
+            SynergyPattern if detected, None otherwise
         """
-        self.performance_metrics['events_processed'] += 1
+        start_time = time.perf_counter()
         
-        # Update cooldown state
-        self.cooldown.update(timestamp)
-        
-        # Store features for later use
-        self._last_features = features
-        
-        # Detect individual signals
-        signals = self._detect_signals(features)
-        
-        # Process each detected signal
-        for signal in signals:
-            self.performance_metrics['signals_detected'] += 1
+        try:
+            self.performance_metrics['events_processed'] += 1
             
-            # Add to sequence (handles validation and resets)
-            self.sequence.add_signal(signal)
+            # Update cooldown state
+            self.cooldown.update(timestamp)
             
-            # Check if we have a complete synergy
-            if self.sequence.is_complete():
-                synergy = self._check_and_create_synergy()
+            # Store features for later use
+            self._last_features = features
+            
+            # Detect individual signals
+            signals = self._detect_signals(features)
+            
+            # Process each detected signal
+            for signal in signals:
+                self.performance_metrics['signals_detected'] += 1
                 
-                if synergy and self.cooldown.can_emit():
-                    # Start cooldown period
-                    self.cooldown.start_cooldown(timestamp)
+                logger.debug(
+                    "Signal detected",
+                    signal_type=signal.signal_type,
+                    direction=signal.direction,
+                    strength=signal.strength
+                )
+                
+                # Add to sequence (handles validation and resets)
+                added = self.sequence.add_signal(signal)
+                
+                if not added:
+                    logger.debug(
+                        "Signal rejected by sequence",
+                        signal_type=signal.signal_type,
+                        reason="duplicate or time window exceeded"
+                    )
+                    continue
+                
+                # Check if we have a complete synergy
+                if self.sequence.is_complete():
+                    synergy = self._check_and_create_synergy()
                     
-                    # Reset sequence for next pattern
-                    self.sequence.reset()
-                    
-                    # Update metrics
-                    self.performance_metrics['synergies_detected'] += 1
-                    self.performance_metrics['patterns_by_type'][synergy.synergy_type] += 1
-                    
-                    return synergy
-                elif synergy and not self.cooldown.can_emit():
-                    logger.info(f"Synergy detected but in cooldown synergy_type={synergy.synergy_type} remaining_bars={self.cooldown.get_remaining_bars()}")
-                    # Reset sequence even though we can't emit
-                    self.sequence.reset()
+                    if synergy and self.cooldown.can_emit():
+                        # Start cooldown period
+                        self.cooldown.start_cooldown(timestamp)
+                        
+                        # Reset sequence for next pattern
+                        self.sequence.reset()
+                        
+                        # Update metrics
+                        self.performance_metrics['synergies_detected'] += 1
+                        self.performance_metrics['patterns_by_type'][synergy.synergy_type] += 1
+                        
+                        # Log detection
+                        logger.info(
+                            "SYNERGY DETECTED",
+                            synergy_type=synergy.synergy_type,
+                            direction=synergy.direction,
+                            bars_to_complete=synergy.bars_to_complete,
+                            signals=[s.signal_type for s in synergy.signals]
+                        )
+                        
+                        # Emit event
+                        self._emit_synergy_event(synergy, features)
+                        
+                        return synergy
+                        
+                    elif synergy and not self.cooldown.can_emit():
+                        logger.info(
+                            "Synergy detected but in cooldown",
+                            synergy_type=synergy.synergy_type,
+                            remaining_bars=self.cooldown.get_remaining_bars()
+                        )
+                        # Reset sequence even though we can't emit
+                        self.sequence.reset()
+                    else:
+                        # Complete sequence but not a valid pattern
+                        logger.warning(
+                            "Invalid pattern detected",
+                            pattern=self.sequence.get_pattern()
+                        )
+                        self.sequence.reset()
+        
+        finally:
+            # Track processing time
+            processing_time = (time.perf_counter() - start_time) * 1000
+            self._update_performance_metrics(processing_time)
+            
+            if processing_time > self.processing_time_warning_ms:
+                logger.warning(
+                    "Slow processing detected",
+                    processing_time_ms=processing_time,
+                    threshold_ms=self.processing_time_warning_ms
+                )
         
         return None
     
     def _detect_signals(self, features: Dict[str, Any]) -> List[Signal]:
-        """Detect all active signals from current features."""
+        """
+        Detect all active signals from current features.
+        
+        Args:
+            features: Feature store snapshot
+            
+        Returns:
+            List of detected signals
+        """
         signals = []
+        timestamp = features.get('timestamp', datetime.now())
         
         # Check MLMI pattern
-        mlmi_signal = self.mlmi_detector.detect_pattern(features)
-        if mlmi_signal:
-            signals.append(mlmi_signal)
+        try:
+            mlmi_signal = self.mlmi_detector.detect_pattern(features)
+            if mlmi_signal and self.mlmi_detector.validate_signal(mlmi_signal, features):
+                mlmi_signal.timestamp = timestamp
+                signals.append(mlmi_signal)
+        except Exception as e:
+            logger.error("MLMI detection error", error=str(e))
         
         # Check NW-RQK pattern
-        nwrqk_signal = self.nwrqk_detector.detect_pattern(features)
-        if nwrqk_signal:
-            signals.append(nwrqk_signal)
+        try:
+            nwrqk_signal = self.nwrqk_detector.detect_pattern(features)
+            if nwrqk_signal and self.nwrqk_detector.validate_signal(nwrqk_signal, features):
+                nwrqk_signal.timestamp = timestamp
+                signals.append(nwrqk_signal)
+        except Exception as e:
+            logger.error("NW-RQK detection error", error=str(e))
         
         # Check FVG pattern
-        fvg_signal = self.fvg_detector.detect_pattern(features)
-        if fvg_signal:
-            signals.append(fvg_signal)
+        try:
+            fvg_signal = self.fvg_detector.detect_pattern(features)
+            if fvg_signal and self.fvg_detector.validate_signal(fvg_signal, features):
+                fvg_signal.timestamp = timestamp
+                signals.append(fvg_signal)
+        except Exception as e:
+            logger.error("FVG detection error", error=str(e))
         
         return signals
     
     def _check_and_create_synergy(self) -> Optional[SynergyPattern]:
-        """Check if current sequence forms a valid synergy."""
-        # Get the pattern
+        """
+        Check if current sequence forms a valid synergy pattern.
+        
+        Returns:
+            SynergyPattern if valid, None otherwise
+        """
+        # Verify we have exactly 3 signals
+        if len(self.sequence.signals) != self.required_signals:
+            return None
+        
+        # Check direction consistency
+        directions = [s.direction for s in self.sequence.signals]
+        if not all(d == directions[0] for d in directions):
+            logger.debug(
+                "Direction mismatch in sequence",
+                directions=directions
+            )
+            return None
+        
+        # Get the pattern tuple
         pattern = self.sequence.get_pattern()
         synergy_type = self.SYNERGY_PATTERNS.get(pattern)
         
         if not synergy_type:
-            logger.warning(f"Complete sequence but not a valid synergy pattern pattern={pattern}")
+            logger.warning(
+                "Complete sequence but not a valid synergy pattern",
+                pattern=pattern,
+                valid_patterns=list(self.SYNERGY_PATTERNS.keys())
+            )
             return None
         
         # Create synergy pattern
-        return SynergyPattern(
+        synergy = SynergyPattern(
             synergy_type=synergy_type,
             direction=self.sequence.get_direction(),
             signals=self.sequence.signals.copy(),
             completion_time=self.sequence.get_completion_time(),
             bars_to_complete=self.sequence.get_bars_to_complete()
         )
+        
+        logger.debug(
+            "Valid synergy pattern created",
+            synergy_type=synergy_type,
+            pattern=pattern
+        )
+        
+        return synergy
     
     def _emit_synergy_event(self, synergy: SynergyPattern, features: Dict[str, Any]):
-        """Emit SYNERGY_DETECTED event with full context."""
-        # Build signal sequence details
+        """
+        Emit SYNERGY_DETECTED event with full context.
+        
+        Args:
+            synergy: Detected synergy pattern
+            features: Current feature store snapshot
+        """
+        # Build signal sequence with full details
         signal_sequence = []
         for signal in synergy.signals:
-            signal_sequence.append({
+            signal_data = {
                 'type': signal.signal_type,
                 'value': signal.value,
                 'signal': signal.direction,
                 'timestamp': signal.timestamp,
-                'strength': signal.strength
-            })
+                'strength': signal.strength,
+                'metadata': signal.metadata or {}
+            }
+            signal_sequence.append(signal_data)
         
-        # Extract market context with configurable defaults
-        defaults = self.kernel.config.get('synergy_detector', {}).get('defaults', {})
+        # Extract signal strengths
+        signal_strengths = {
+            'mlmi': next((s.strength for s in synergy.signals if s.signal_type == 'mlmi'), 0.0),
+            'nwrqk': next((s.strength for s in synergy.signals if s.signal_type == 'nwrqk'), 0.0),
+            'fvg': next((s.strength for s in synergy.signals if s.signal_type == 'fvg'), 0.0)
+        }
+        
+        # Build market context
         market_context = {
-            'current_price': features.get('current_price', defaults.get('current_price', 0.0)),
-            'volatility': features.get('volatility_30', defaults.get('volatility', 0.0)),
-            'volume_profile': {
-                'volume_ratio': features.get('volume_ratio', defaults.get('volume_ratio', 1.0)),
-                'volume_momentum': features.get('volume_momentum_30', defaults.get('volume_momentum', 0.0))
-            },
+            'current_price': features.get('current_price', 0.0),
+            'volatility': features.get('volatility_30', 0.0),
+            'volume_ratio': features.get('volume_ratio', 1.0),
+            'vix': features.get('vix', 20.0),
+            'trend_strength_5m': features.get('trend_strength_5', 0.0),
+            'trend_strength_30m': features.get('trend_strength_30', 0.0),
             'nearest_lvn': {
                 'price': features.get('lvn_nearest_price', 0.0),
                 'strength': features.get('lvn_nearest_strength', 0.0),
                 'distance': features.get('lvn_distance_points', 0.0)
-            }
+            },
+            'timestamp': features.get('timestamp', datetime.now())
         }
         
-        # Build metadata
-        metadata = {
-            'bars_to_complete': synergy.bars_to_complete,
-            'signal_strengths': {
-                signal.signal_type: signal.strength 
-                for signal in synergy.signals
-            }
-        }
-        
-        # Create event payload
+        # Build complete payload
         payload = {
             'synergy_type': synergy.synergy_type,
             'direction': synergy.direction,
             'confidence': synergy.confidence,
             'timestamp': synergy.completion_time,
             'signal_sequence': signal_sequence,
+            'signal_strengths': signal_strengths,
             'market_context': market_context,
-            'metadata': metadata
+            'metadata': {
+                'bars_to_complete': synergy.bars_to_complete,
+                'pattern_quality': self._calculate_pattern_quality(synergy),
+                'detection_timestamp': datetime.now()
+            }
         }
         
         # Create and publish event
         event = self.kernel.event_bus.create_event(
             EventType.SYNERGY_DETECTED,
             payload,
-            self.name
+            source=self.name
         )
+        
         self.kernel.event_bus.publish(event)
         
-        logger.info(f"SYNERGY DETECTED synergy_type={synergy.synergy_type} direction={'LONG' if synergy.direction == 1 else 'SHORT'} bars_to_complete={synergy.bars_to_complete} pattern={[s.signal_type for s in synergy.signals]}")
+        logger.info(
+            "SYNERGY_DETECTED event emitted",
+            synergy_type=synergy.synergy_type,
+            direction=synergy.direction,
+            bars_to_complete=synergy.bars_to_complete
+        )
     
-    def _update_performance_metrics(self, processing_time: float):
-        """Update performance metrics."""
-        processing_time_ms = processing_time * 1000
+    def _calculate_pattern_quality(self, synergy: SynergyPattern) -> float:
+        """
+        Calculate overall quality score for the pattern.
+        
+        Args:
+            synergy: The synergy pattern
+            
+        Returns:
+            Quality score between 0 and 1
+        """
+        # Average signal strengths
+        avg_strength = sum(s.strength for s in synergy.signals) / len(synergy.signals)
+        
+        # Time efficiency (faster completion = higher quality)
+        time_efficiency = 1.0 - (synergy.bars_to_complete / self.time_window_bars)
+        
+        # Direction consistency bonus
+        direction_bonus = 0.1 if all(s.direction == synergy.direction for s in synergy.signals) else 0.0
+        
+        # Weighted quality score
+        quality = (avg_strength * 0.6 + time_efficiency * 0.3 + direction_bonus)
+        
+        return min(1.0, max(0.0, quality))
+    
+    def _update_performance_metrics(self, processing_time_ms: float):
+        """Update performance metrics with new measurement."""
+        metrics = self.performance_metrics
         
         # Update average processing time
-        n = self.performance_metrics['events_processed']
-        avg = self.performance_metrics['avg_processing_time_ms']
-        self.performance_metrics['avg_processing_time_ms'] = (
-            (avg * (n - 1) + processing_time_ms) / n
-        )
+        total_events = metrics['events_processed']
+        if total_events > 0:
+            current_avg = metrics['avg_processing_time_ms']
+            metrics['avg_processing_time_ms'] = (
+                (current_avg * (total_events - 1) + processing_time_ms) / total_events
+            )
         
         # Update max processing time
-        self.performance_metrics['max_processing_time_ms'] = max(
-            self.performance_metrics['max_processing_time_ms'],
+        metrics['max_processing_time_ms'] = max(
+            metrics['max_processing_time_ms'],
             processing_time_ms
         )
-        
-        # Log warning if processing time exceeds configured threshold
-        if processing_time_ms > self.processing_time_warning_ms:
-            logger.warning(f"Processing time exceeded threshold processing_time_ms={processing_time_ms} threshold_ms={self.processing_time_warning_ms}")
     
     def get_status(self) -> Dict[str, Any]:
-        """Get component status for monitoring."""
+        """Get comprehensive component status."""
         return {
+            'component': self.name,
             'initialized': self._initialized,
-            'performance_metrics': self.performance_metrics,
-            'sequence_state': self.sequence.get_state(),
-            'cooldown_state': self.cooldown.get_state(),
+            'performance_metrics': self.performance_metrics.copy(),
+            'sequence_status': {
+                'signals_count': len(self.sequence.signals),
+                'pattern': self.sequence.get_pattern() if self.sequence.signals else None,
+                'time_remaining': self.sequence.get_time_remaining() if self.sequence.signals else None
+            },
+            'cooldown_status': {
+                'in_cooldown': self.cooldown.is_in_cooldown(),
+                'remaining_bars': self.cooldown.get_remaining_bars()
+            },
             'pattern_detectors': {
-                'mlmi': self.mlmi_detector.get_performance_metrics(),
-                'nwrqk': self.nwrqk_detector.get_performance_metrics(),
-                'fvg': self.fvg_detector.get_performance_metrics()
+                'mlmi': self.mlmi_detector._performance_metrics.copy(),
+                'nwrqk': self.nwrqk_detector._performance_metrics.copy(),
+                'fvg': self.fvg_detector._performance_metrics.copy()
             }
         }
+    
+    def reset(self):
+        """Reset the detector state."""
+        self.sequence.reset()
+        self.cooldown.reset()
+        self._last_features = {}
+        logger.info("SynergyDetector reset")

@@ -1,0 +1,41 @@
+# Production configuration for SynergyDetector
+
+synergy_detector:
+  # Time window for pattern completion (in bars)
+  time_window_bars: 10
+  
+  # Cooldown after detection (in bars)
+  cooldown_bars: 5
+  
+  # Bar duration in minutes
+  bar_duration_minutes: 5
+  
+  # Number of signals required for synergy
+  required_signals: 3
+  
+  # Performance warning threshold (ms)
+  processing_time_warning_ms: 1.0
+  
+  # Pattern detection thresholds
+  mlmi_detector:
+    threshold: 0.5          # Minimum signal strength
+    neutral_line: 50        # MLMI neutral value
+    scaling_factor: 50      # For strength calculation
+    max_strength: 1.0       # Maximum signal strength
+    
+  nwrqk_detector:
+    threshold: 0.3          # Minimum slope for signal
+    max_slope: 2.0          # Maximum expected slope
+    max_strength: 1.0       # Maximum signal strength
+    
+  fvg_detector:
+    min_size: 0.001         # Minimum gap size (0.1%)
+    max_gap_pct: 0.01       # Maximum gap percentage (1%)
+    require_mitigation: true # Only signal on mitigation
+    
+  # Logging configuration
+  logging:
+    log_signals: true       # Log individual signal detections
+    log_sequences: true     # Log sequence building
+    log_patterns: true      # Log pattern detections
+    log_performance: true   # Log performance metrics
