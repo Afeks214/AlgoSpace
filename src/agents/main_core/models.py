@@ -6,7 +6,7 @@ intelligence system, including specialized embedders, the shared policy
 network, and the final decision gate.
 """
 
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Any
 import math
 import torch
 import torch.nn as nn
@@ -21,6 +21,13 @@ from .regime_patterns import RegimePatternBank
 from .shared_policy import SharedPolicy as AdvancedSharedPolicy
 from .mc_dropout_policy import MCDropoutConsensus
 from .multi_objective_value import MultiObjectiveValueFunction
+from .tactical_bilstm_components import (
+    BiLSTMGateController,
+    TemporalPyramidPooling,
+    BiLSTMPositionalEncoding,
+    DirectionalFeatureFusion,
+    BiLSTMTemporalMasking
+)
 
 class MCDropoutMixin:
     """Mixin to add MC Dropout support to embedders."""
@@ -568,6 +575,20 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
                 nn.Dropout(dropout_rate)
             )
         
+        # Add BiLSTM enhancement components
+        self.gate_controller = BiLSTMGateController(hidden_dim)
+        self.bilstm_positional_encoding = BiLSTMPositionalEncoding(hidden_dim)
+        self.pyramid_pooling = TemporalPyramidPooling(
+            hidden_dim * 2,
+            pyramid_levels=[1, 3, 6, 12]
+        )
+        self.directional_fusion = DirectionalFeatureFusion(hidden_dim)
+        self.temporal_masking = BiLSTMTemporalMasking(hidden_dim)
+        
+        # Store BiLSTM configuration
+        self.is_bilstm = True
+        self.bilstm_output_dim = hidden_dim * 2
+        
         # Initialize weights
         self._init_weights()
         
@@ -735,6 +756,19 @@ class TacticalEmbedder(nn.Module, MCDropoutMixin):
         std = predictions.std(dim=0)
         
         return mean, std
+    
+    def get_bilstm_info(self) -> Dict[str, Any]:
+        """Get BiLSTM configuration and status."""
+        return {
+            'is_bilstm': self.is_bilstm,
+            'hidden_dim': self.hidden_dim,
+            'bilstm_output_dim': self.bilstm_output_dim,
+            'has_gate_controller': hasattr(self, 'gate_controller'),
+            'has_pyramid_pooling': hasattr(self, 'pyramid_pooling'),
+            'has_positional_encoding': hasattr(self, 'bilstm_positional_encoding'),
+            'has_directional_fusion': hasattr(self, 'directional_fusion'),
+            'has_temporal_masking': hasattr(self, 'temporal_masking')
+        }
         
     def enable_inference_mode(self):
         """Optimize model for inference by fusing operations."""
@@ -800,7 +834,7 @@ class MomentumAnalyzer:
         embeddings: torch.Tensor,
         attention_weights: torch.Tensor,
         lstm_states: List[torch.Tensor]
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Analyze momentum patterns from embedder outputs.
         
@@ -1247,10 +1281,10 @@ class MCDropoutEvaluator:
         
     def evaluate(
         self,
-        model: SharedPolicy,
+        model: 'SharedPolicy',
         unified_state: torch.Tensor,
         confidence_threshold: float = 0.65
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Run MC Dropout evaluation.
         

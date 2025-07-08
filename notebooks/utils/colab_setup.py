@@ -169,7 +169,7 @@ class ColabSetup:
     def keep_alive(self):
         """Keep Colab session alive by preventing idle timeout."""
         if self.is_colab:
-            from IPython.display import Javascript
+            from IPython.display import Javascript, display
             display(Javascript('''
                 function KeepAlive() {
                     const pingInterval = 60000;  // 1 minute

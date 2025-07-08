@@ -1,0 +1,106 @@
+# Unified Configuration for All Training Notebooks
+# This configuration ensures consistency across all training processes
+
+# Time Window Configuration
+time_windows:
+  window_30m: 48      # 30-minute bars for 24 hours
+  window_5m: 60       # 5-minute bars for 5 hours
+  window_1m: 120      # 1-minute bars for 2 hours
+
+# Model Architecture
+model:
+  # Regime Detection Agent
+  regime:
+    latent_dim: 8
+    mmd_dims: [64, 32, 16]
+    kernel_scales: [0.25, 0.5, 1.0, 2.0, 4.0]
+    hidden_size: 128
+    num_layers: 3
+    dropout: 0.2
+    
+  # Structure Agent
+  structure:
+    hidden_dim: 256
+    num_heads: 8
+    num_layers: 4
+    dropout: 0.2
+    
+  # Tactical Agent
+  tactical:
+    hidden_dim: 128
+    num_layers: 2
+    dropout: 0.2
+    use_bilstm: true
+    
+  # Main Core
+  main_core:
+    hidden_dim: 512
+    num_heads: 16
+    num_layers: 6
+    synergy_dim: 256
+
+# Training Configuration
+training:
+  batch_size: 256
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  gradient_clip: 1.0
+  num_epochs: 100
+  validation_split: 0.2
+  
+  # Checkpoint settings
+  checkpoint_interval: 5  # Save every 5 epochs
+  keep_best_n: 3         # Keep best 3 checkpoints
+  
+  # Memory optimization
+  gradient_accumulation_steps: 4
+  mixed_precision: true
+  
+  # Early stopping
+  patience: 20
+  min_delta: 0.0001
+
+# Data Configuration
+data:
+  # Paths (relative to notebooks directory)
+  raw_data_path: "../data/raw"
+  processed_data_path: "../data/processed"
+  
+  # Output files
+  main_training_data: "main_training_data.parquet"
+  rde_training_data: "rde_training_data.h5"
+  mrms_training_data: "mrms_training_data.parquet"
+  
+  # Processing
+  chunk_size: 10000
+  normalize: true
+  fill_method: "forward"
+  
+# Colab Configuration
+colab:
+  # Drive paths
+  drive_mount_path: "/content/drive"
+  project_folder: "MyDrive/AlgoSpace-8"
+  checkpoint_folder: "checkpoints"
+  data_folder: "data"
+  
+  # GPU settings
+  clear_memory_interval: 10  # Clear GPU memory every N batches
+  
+  # Recovery settings
+  auto_resume: true
+  save_state_every_n_steps: 100
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  save_logs: true
+  log_dir: "logs"
+  tensorboard: true
+  
+# Environment Configuration
+environment:
+  seed: 42
+  deterministic: true
+  num_workers: 4
+  pin_memory: true
