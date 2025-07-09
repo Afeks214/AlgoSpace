@@ -1,0 +1,122 @@
+# Synergy 3 Strategy Configuration
+# NW-RQK → MLMI → FVG Trading Strategy
+
+# Data Configuration
+data:
+  base_path: "/home/QuantNova/AlgoSpace-8/data"
+  btc_30m_file: "BTC-USD-30m.csv"
+  btc_5m_file: "BTC-USD-5m.csv"
+  datetime_formats:
+    - "%Y-%m-%d %H:%M:%S%z"
+    - "%Y-%m-%d %H:%M:%S"
+    - "%Y-%m-%d"
+  validation:
+    check_missing: true
+    max_missing_pct: 0.05
+    check_outliers: true
+    outlier_std_threshold: 10
+
+# NW-RQK Configuration
+nwrqk:
+  window: 30
+  n_kernels: 3
+  alphas: [0.3, 0.5, 0.7]
+  length_scales: [30.0, 50.0, 70.0]
+  threshold: 0.002
+  volatility_adaptive: true
+  cache_enabled: true
+
+# MLMI Configuration  
+mlmi:
+  window: 10
+  k_neighbors: 5
+  feature_window: 3
+  lookback: 100
+  rsi_period: 14
+  volatility_window: 20
+  volatility_scale: 2.0
+  bull_threshold: 0.65
+  bear_threshold: 0.35
+  confidence_threshold: 0.3
+
+# FVG Configuration
+fvg:
+  min_gap_pct: 0.001
+  volume_factor: 1.2
+  volume_window: 20
+  timeframe_mapping:
+    source: "5m"
+    target: "30m"
+    aggregation: "max"
+
+# Synergy Detection Configuration
+synergy:
+  window: 30
+  nwrqk_strength_threshold: 0.5
+  mlmi_confidence_threshold: 0.3
+  state_decay_window: 30
+  strength_calculation:
+    nwrqk_weight: 0.33
+    mlmi_weight: 0.33
+    fvg_weight: 0.34
+
+# Risk Management Configuration
+risk_management:
+  position_size_base: 0.1
+  dynamic_sizing: true
+  size_range: [0.05, 0.15]
+  stop_loss_pct: 0.02
+  take_profit_pct: 0.03
+  trailing_stop: false
+  max_positions: 1
+  max_daily_loss: 0.05
+  max_drawdown_limit: 0.15
+
+# Backtesting Configuration
+backtest:
+  initial_capital: 100000
+  fees: 0.001
+  slippage: 0.0005
+  frequency: "30min"
+  warmup_periods: 100
+  walk_forward:
+    enabled: true
+    training_periods: 1000
+    testing_periods: 200
+    step_size: 100
+
+# Monte Carlo Configuration
+monte_carlo:
+  n_simulations: 10000
+  n_periods: 252
+  confidence_levels: [5, 25, 50, 75, 95]
+  random_seed: 42
+
+# Visualization Configuration
+visualization:
+  theme: "plotly_dark"
+  width: 1200
+  height: 800
+  save_plots: true
+  output_path: "/home/QuantNova/AlgoSpace-8/results/plots"
+  
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "/home/QuantNova/AlgoSpace-8/logs/synergy_3.log"
+  console: true
+
+# Performance Metrics
+metrics:
+  calculate_all: true
+  required_metrics:
+    - total_return
+    - sharpe_ratio
+    - sortino_ratio
+    - calmar_ratio
+    - max_drawdown
+    - win_rate
+    - profit_factor
+    - expectancy
+    - trades_per_year

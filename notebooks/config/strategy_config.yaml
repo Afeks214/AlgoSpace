@@ -1,0 +1,142 @@
+# AlgoSpace Strategy Configuration File
+# Version: 1.0
+
+# Data Configuration
+data:
+  paths:
+    data_5min: "/home/QuantNova/AlgoSpace-8/data/historical/ES - 5 min.csv"
+    data_30min: "/home/QuantNova/AlgoSpace-8/data/historical/ES - 30 min.csv"
+  
+  # Data loading parameters
+  datetime_formats:
+    - "%d/%m/%Y %H:%M"
+    - "%m/%d/%Y %H:%M"
+    - "%Y-%m-%d %H:%M:%S"
+  
+  # Quality checks
+  min_required_rows: 1000
+  max_missing_ratio: 0.05
+
+# Indicator Parameters
+indicators:
+  # Fair Value Gap (FVG)
+  fvg:
+    lookback: 3
+    validity: 20
+  
+  # Machine Learning Market Indicator (MLMI)
+  mlmi:
+    ma_fast_period: 5
+    ma_slow_period: 20
+    rsi_fast_period: 5
+    rsi_slow_period: 20
+    smooth_period: 20
+    k_neighbors: 200
+    max_data_points: 10000
+  
+  # Nadaraya-Watson Rational Quadratic Kernel (NW-RQK)
+  nwrqk:
+    bandwidth: 8.0
+    kernel_parameter: 8.0
+    lag: 2
+    min_periods: 25
+    max_window: 500
+
+# Synergy Detection Parameters
+synergy:
+  detection_window: 30
+  half_window_ratio: 0.5
+  synergy_types:
+    1: "MLMI → FVG → NWRQK"
+    2: "MLMI → NWRQK → FVG"
+    3: "NWRQK → MLMI → FVG"
+    4: "NWRQK → FVG → MLMI"
+
+# Strategy Parameters
+strategy:
+  # Position sizing
+  position_sizing:
+    method: "fixed"  # Options: fixed, volatility_based, kelly
+    fixed_size: 100
+    volatility_lookback: 20
+    kelly_confidence: 0.25
+  
+  # Risk management
+  risk_management:
+    stop_loss: 0.02  # 2%
+    take_profit: 0.04  # 4%
+    trailing_stop: 0.015  # 1.5%
+    max_positions: 1
+    max_daily_loss: 0.05  # 5%
+  
+  # Exit rules
+  exit_rules:
+    use_stop_loss: true
+    use_take_profit: true
+    use_trailing_stop: false
+    use_time_exit: true
+    max_holding_periods: 100  # 5-minute bars
+
+# Backtesting Parameters
+backtesting:
+  initial_capital: 100000
+  commission: 0.0001  # 0.01%
+  slippage: 0.0001  # 0.01%
+  frequency: "5T"
+  
+  # Walk-forward analysis
+  walk_forward:
+    enabled: true
+    in_sample_ratio: 0.7
+    step_size: 0.1
+    min_train_periods: 5000
+
+# Monte Carlo Parameters
+monte_carlo:
+  n_simulations: 1000
+  n_periods: 252
+  confidence_level: 0.95
+  random_seed: 42
+
+# Performance Metrics
+metrics:
+  calculate:
+    - "total_return"
+    - "sharpe_ratio"
+    - "sortino_ratio"
+    - "calmar_ratio"
+    - "max_drawdown"
+    - "win_rate"
+    - "profit_factor"
+    - "expectancy"
+  
+  risk_free_rate: 0.02  # 2% annual
+
+# Optimization Parameters
+optimization:
+  enabled: false
+  method: "grid_search"  # Options: grid_search, random_search, bayesian
+  n_trials: 100
+  
+  # Parameter ranges for optimization
+  param_ranges:
+    fvg_lookback: [2, 3, 5]
+    fvg_validity: [10, 20, 30]
+    mlmi_k_neighbors: [100, 200, 300]
+    nwrqk_bandwidth: [6.0, 8.0, 10.0]
+    synergy_window: [20, 30, 40]
+
+# Logging Configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
+  file_output: true
+  console_output: true
+  log_file: "logs/strategy_{timestamp}.log"
+
+# Visualization Settings
+visualization:
+  save_plots: true
+  plot_format: "png"
+  dpi: 300
+  figure_size: [12, 8]
+  style: "seaborn-v0_8-darkgrid"
